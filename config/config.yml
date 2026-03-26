@@ -1,0 +1,58 @@
+ona:
+  base_url: "https://api.whonghub.org/api/v1/data"
+  form_ids:
+    - 4500
+    - 8588
+    - 10271
+    - 5203
+    - 4388
+    - 8834
+    - 4450
+    - 9601
+    - 4436
+    - 4431
+    - 4999
+    - 4481
+    - 8094
+    - 6837
+    - 3583
+    - 5299
+    - 7589
+    - 6420
+    - 5889
+    - 8281
+    - 7602
+    - 4987
+    - 6429
+    - 7623
+    - 15782
+    - 5214
+    - 9794
+    - 6350
+    - 6104
+    - 5777
+    - 7614
+    - 4419
+    - 6769
+    - 4351
+    - 7983
+
+processing:
+  parallel_workers: 4
+  max_retries: 3
+  chunk_size: 10
+  
+validation:
+  min_clusters: 3
+  min_sample_size: 60
+  quality_threshold: 0.95
+
+output:
+  format: "csv"
+  compression: false
+  backup: true
+
+notifications:
+  on_success: false
+  on_failure: true
+  on_validation_warning: true

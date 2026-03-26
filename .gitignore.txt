@@ -1,0 +1,36 @@
+# Data files
+data/input/*
+data/output/*
+data/archive/*
+data/metadata/*
+!data/input/.gitkeep
+!data/output/.gitkeep
+!data/archive/.gitkeep
+!data/metadata/.gitkeep
+
+# Logs
+logs/*.log
+logs/*.json
+!logs/.gitkeep
+
+# Environment
+.env
+.env.local
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+venv/
+.venv/
+env/
+
+# R
+.Rproj.user
+.Rhistory
+.RData
+.Ruserdata
+
+# System
+.DS_Store
+Thumbs.db
