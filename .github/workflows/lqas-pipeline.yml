@@ -43,11 +43,6 @@ on:
 env:
   ONA_API_TOKEN: ${{ secrets.ONA_API_TOKEN }}
   GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-  EMAIL_USER: ${{ secrets.EMAIL_USER }}
-  EMAIL_PASSWORD: ${{ secrets.EMAIL_PASSWORD }}
-  SMTP_SERVER: ${{ secrets.SMTP_SERVER }}
-  SMTP_PORT: ${{ secrets.SMTP_PORT }}
-  NOTIFICATION_EMAILS: ${{ secrets.NOTIFICATION_EMAILS }}
 
 # ============================================================
 # JOB 1: FETCH DATA FROM ONA
@@ -627,7 +622,7 @@ jobs:
     name: 📧 Send Notifications
     needs: [fetch-data, process-data, combine-validate, clean-geoname, dashboard]
     runs-on: ubuntu-latest
-    if: always() && env.EMAIL_USER != '' && env.EMAIL_PASSWORD != ''
+    if: always() && secrets.EMAIL_USER != '' && secrets.EMAIL_PASSWORD != ''
     
     steps:
       - name: Check status
