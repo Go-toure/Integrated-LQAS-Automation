@@ -521,7 +521,7 @@ jobs:
           destination_dir: latest
           keep_files: false
 
-    notify:
+  notify:
     name: 📧 Send Notifications
     needs: [fetch-data, process-data, combine-validate, clean-geoname, dashboard]
     runs-on: ubuntu-latest
