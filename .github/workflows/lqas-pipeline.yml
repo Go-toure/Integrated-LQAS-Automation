@@ -521,7 +521,7 @@ jobs:
           destination_dir: latest
           keep_files: false
 
-  notify:
+    notify:
     name: 📧 Send Notifications
     needs: [fetch-data, process-data, combine-validate, clean-geoname, dashboard]
     runs-on: ubuntu-latest
@@ -567,9 +567,9 @@ jobs:
             - Geoname Cleaning: ${{ needs.clean-geoname.result }}
             - Dashboard: ${{ needs.dashboard.result }}
             
-            ${{ steps.status.outputs.status == 'success' && '📈 Dashboard:\nhttps://' + github.repository_owner + '.github.io/' + github.event.repository.name + '/latest/dashboard.html' || '' }}
+            ${{ steps.status.outputs.status == 'success' && '📈 Dashboard:\nhttps://' || '' }}${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/latest/dashboard.html
             
-            ${{ steps.status.outputs.status == 'failed' && '🔧 Action Required:\nCheck logs: ' + github.server_url + '/' + github.repository + '/actions/runs/' + github.run_id || '' }}
+            ${{ steps.status.outputs.status == 'failed' && '🔧 Action Required:\nCheck logs: ' || '' }}${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
             
             ---
             *This is an automated message from the LQAS Pipeline*
