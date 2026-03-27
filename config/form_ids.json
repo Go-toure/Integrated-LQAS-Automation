@@ -1,3 +1,241 @@
 {
-  "lqas_forms": [8588, 10271, 5203, 4388, 8834, 4450, 9601, 4436, 5203, 4431, 4999, 4481, 4500, 8094, 6837, 3583, 5299, 7589, 6420, 5889, 8281, 7602, 4987, 6429, 7623, 15782, 5214, 9794, 6350, 6104, 5777, 7614, 4419, 6769, 4351, 7983]
+  "lqas_forms": [
+    4500,
+    8588,
+    10271,
+    5203,
+    4388,
+    8834,
+    4450,
+    9601,
+    4436,
+    4431,
+    4999,
+    4481,
+    8094,
+    6837,
+    3583,
+    5299,
+    7589,
+    6420,
+    5889,
+    8281,
+    7602,
+    4987,
+    6429,
+    7623,
+    15782,
+    5214,
+    9794,
+    6350,
+    6104,
+    5777,
+    7614,
+    4419,
+    6769,
+    4351,
+    7983
+  ],
+  
+  "special_files": {
+    "272": {
+      "form_id": 272,
+      "enabled": true,
+      "type": "rds",
+      "description": "Nigeria LQAS data from 272.rds",
+      "source": "pre-existing",
+      "filename": "272.rds",
+      "processing_script": "src/r/special_272.R"
+    },
+    "nigeria_csv": {
+      "form_id": null,
+      "enabled": true,
+      "type": "csv",
+      "description": "Nigeria LQAS CSV data file",
+      "source": "pre-existing",
+      "filename": "Nigeria_LQAS_int_oct_2025.csv",
+      "processing_script": "src/r/special_nigeria_csv.R"
+    }
+  },
+  
+  "form_metadata": {
+    "4500": {
+      "name": "LQAS Form 4500",
+      "country": "Multiple",
+      "notes": ""
+    },
+    "8588": {
+      "name": "LQAS Form 8588",
+      "country": "Multiple",
+      "notes": ""
+    },
+    "10271": {
+      "name": "LQAS Form 10271",
+      "country": "Multiple",
+      "notes": ""
+    },
+    "5203": {
+      "name": "LQAS Form 5203",
+      "country": "Multiple",
+      "notes": ""
+    },
+    "4388": {
+      "name": "LQAS Form 4388",
+      "country": "Multiple",
+      "notes": ""
+    },
+    "8834": {
+      "name": "LQAS Form 8834",
+      "country": "Multiple",
+      "notes": ""
+    },
+    "4450": {
+      "name": "LQAS Form 4450",
+      "country": "Multiple",
+      "notes": ""
+    },
+    "9601": {
+      "name": "LQAS Form 9601",
+      "country": "Multiple",
+      "notes": ""
+    },
+    "4436": {
+      "name": "LQAS Form 4436",
+      "country": "Multiple",
+      "notes": ""
+    },
+    "4431": {
+      "name": "LQAS Form 4431",
+      "country": "Multiple",
+      "notes": ""
+    },
+    "4999": {
+      "name": "LQAS Form 4999",
+      "country": "Multiple",
+      "notes": ""
+    },
+    "4481": {
+      "name": "LQAS Form 4481",
+      "country": "Multiple",
+      "notes": ""
+    },
+    "8094": {
+      "name": "LQAS Form 8094",
+      "country": "Multiple",
+      "notes": ""
+    },
+    "6837": {
+      "name": "LQAS Form 6837",
+      "country": "Multiple",
+      "notes": ""
+    },
+    "3583": {
+      "name": "LQAS Form 3583",
+      "country": "Ghana",
+      "notes": "Ghana specific processing"
+    },
+    "5299": {
+      "name": "LQAS Form 5299",
+      "country": "Multiple",
+      "notes": ""
+    },
+    "7589": {
+      "name": "LQAS Form 7589",
+      "country": "Multiple",
+      "notes": ""
+    },
+    "6420": {
+      "name": "LQAS Form 6420",
+      "country": "Multiple",
+      "notes": ""
+    },
+    "5889": {
+      "name": "LQAS Form 5889",
+      "country": "Multiple",
+      "notes": ""
+    },
+    "8281": {
+      "name": "LQAS Form 8281",
+      "country": "Multiple",
+      "notes": ""
+    },
+    "7602": {
+      "name": "LQAS Form 7602",
+      "country": "Multiple",
+      "notes": ""
+    },
+    "4987": {
+      "name": "LQAS Form 4987",
+      "country": "Multiple",
+      "notes": ""
+    },
+    "6429": {
+      "name": "LQAS Form 6429",
+      "country": "Multiple",
+      "notes": ""
+    },
+    "7623": {
+      "name": "LQAS Form 7623",
+      "country": "Multiple",
+      "notes": ""
+    },
+    "15782": {
+      "name": "LQAS Form 15782",
+      "country": "Multiple",
+      "notes": ""
+    },
+    "5214": {
+      "name": "LQAS Form 5214",
+      "country": "Multiple",
+      "notes": ""
+    },
+    "9794": {
+      "name": "LQAS Form 9794",
+      "country": "Multiple",
+      "notes": ""
+    },
+    "6350": {
+      "name": "LQAS Form 6350",
+      "country": "Multiple",
+      "notes": ""
+    },
+    "6104": {
+      "name": "LQAS Form 6104",
+      "country": "Multiple",
+      "notes": ""
+    },
+    "5777": {
+      "name": "LQAS Form 5777",
+      "country": "Multiple",
+      "notes": ""
+    },
+    "7614": {
+      "name": "LQAS Form 7614",
+      "country": "Multiple",
+      "notes": ""
+    },
+    "4419": {
+      "name": "LQAS Form 4419",
+      "country": "Multiple",
+      "notes": ""
+    },
+    "6769": {
+      "name": "LQAS Form 6769",
+      "country": "Multiple",
+      "notes": ""
+    },
+    "4351": {
+      "name": "LQAS Form 4351",
+      "country": "Multiple",
+      "notes": ""
+    },
+    "7983": {
+      "name": "LQAS Form 7983",
+      "country": "Multiple",
+      "notes": ""
+    }
+  },
+  
+  "last_updated": "2025-03-27",
+  "version": "2.0"
 }

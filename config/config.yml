@@ -1,3 +1,7 @@
+# ============================================================
+# LQAS Pipeline Configuration
+# ============================================================
+
 ona:
   base_url: "https://api.whonghub.org/api/v1/data"
   form_ids:
@@ -36,23 +40,264 @@ ona:
     - 6769
     - 4351
     - 7983
+  
+  # Special files that are pre-existing (not fetched from ONA)
+  special_files:
+    272:
+      enabled: true
+      source: "pre-existing"
+      description: "Nigeria LQAS data from 272.rds"
+    nigeria_csv:
+      enabled: true
+      source: "pre-existing"
+      filename: "Nigeria_LQAS_int_oct_2025.csv"
+      description: "Nigeria LQAS CSV data file"
+  
+  # API settings
+  timeout: 60
+  page_size: 10000
+  retry_attempts: 3
 
+# ============================================================
+# Processing Configuration
+# ============================================================
 processing:
   parallel_workers: 4
   max_retries: 3
   chunk_size: 10
   
+  # R processing settings
+  r:
+    script_path: "src/r/process_lqas.R"
+    special_scripts:
+      script_272: "src/r/special_272.R"
+      script_nigeria: "src/r/special_nigeria_csv.R"
+    post_scripts:
+      combine: "src/r/clean_geonames.R"
+  
+  # File patterns
+  input_patterns:
+    - "*.rds"
+    - "*.qs"
+    - "*.csv"
+    - "*.xlsx"
+  
+  # Directories
+  directories:
+    input: "data/input"
+    output: "data/output"
+    archive: "data/archive"
+    metadata: "data/metadata"
+    lookup: "data/lookup"
+    logs: "logs"
+    reports: "reports"
+
+# ============================================================
+# Validation Configuration
+# ============================================================
 validation:
   min_clusters: 3
   min_sample_size: 60
   quality_threshold: 0.95
+  date_filter:
+    start_date: "2019-10-01"
+    year_min: 2020
+  
+  # Required columns for validation
+  required_columns:
+    - country
+    - province
+    - district
+    - response
+    - roundNumber
+    - total_sampled
+    - total_vaccinated
+    - start_date
+  
+  # Quality checks
+  quality_checks:
+    - name: "coverage_range"
+      min: 0
+      max: 100
+    - name: "vaccinated_not_exceed_sampled"
+      enabled: true
+    - name: "non_negative_counts"
+      enabled: true
+    - name: "date_consistency"
+      enabled: true
 
+# ============================================================
+# Output Configuration
+# ============================================================
 output:
   format: "csv"
   compression: false
   backup: true
+  backup_retention_days: 30
+  
+  # Output files
+  files:
+    combined: "data/combined_lqas_data.csv"
+    final: "data/lqas_final.csv"
+    dashboard: "reports/dashboard.html"
+  
+  # Column selection for final output
+  columns:
+    required:
+      - AFRO_block
+      - country_code
+      - country
+      - province
+      - district
+      - response
+      - vaccine.type
+      - roundNumber
+      - numbercluster
+      - round_start_date
+      - lqas_start_date
+      - lqas_end_date
+      - year
+      - male_sampled
+      - female_sampled
+      - total_sampled
+      - male_vaccinated
+      - female_vaccinated
+      - total_vaccinated
+      - total_missed
+      - status
+      - performance
+    reasons:
+      - r_Non_Compliance
+      - r_House_not_visited
+      - r_childabsent
+      - r_child_was_asleep
+      - r_child_is_a_visitor
+      - r_Vaccinated_but_not_FM
+      - r_childnotborn
+      - r_security
+      - other_r
+    percentages:
+      - prct_care_giver_informed_SIA
+      - prct_non_compliance
+      - prct_house_not_visited
+      - prct_childabsent
+      - prct_child_was_asleep
+      - prct_child_is_a_visitor
+      - prct_vaccinated_but_not_FM
+      - prct_security
+      - prct_childnotborn
+      - prct_other_r
 
+# ============================================================
+# Dashboard Configuration
+# ============================================================
+dashboard:
+  title: "LQAS Data Dashboard"
+  refresh_interval: 120  # minutes
+  deployment:
+    enabled: true
+    branch: "gh-pages"
+    directory: "latest"
+  charts:
+    - type: "coverage_by_country"
+      enabled: true
+    - type: "coverage_by_response"
+      enabled: true
+    - type: "performance_distribution"
+      enabled: true
+
+# ============================================================
+# Notification Configuration
+# ============================================================
 notifications:
   on_success: false
   on_failure: true
   on_validation_warning: true
+  on_partial_success: true
+  
+  # Email settings (use environment variables in production)
+  email:
+    enabled: true
+    from: "LQAS Automation"
+    recipients_env: "NOTIFICATION_EMAILS"
+  
+  # GitHub issue creation on failure
+  github_issue:
+    enabled: true
+    labels:
+      - "pipeline-failure"
+      - "urgent"
+  
+  # Slack notifications (optional - configure if needed)
+  slack:
+    enabled: false
+    webhook_url_env: "SLACK_WEBHOOK_URL"
+    channel: "#lqas-alerts"
+
+# ============================================================
+# Logging Configuration
+# ============================================================
+logging:
+  level: "INFO"
+  file: "logs/pipeline.log"
+  format: "json"
+  retention_days: 30
+  
+  # Log rotation
+  rotation:
+    max_size_mb: 100
+    max_files: 10
+
+# ============================================================
+# Performance Settings
+# ============================================================
+performance:
+  # Parallel processing
+  parallel:
+    enabled: true
+    workers: 4
+    chunk_size: 10
+  
+  # Caching
+  cache:
+    enabled: true
+    directory: "data/cache"
+    ttl_hours: 24
+  
+  # Memory limits
+  memory:
+    limit_mb: 4096
+    gc_interval: 100
+
+# ============================================================
+# Environment-specific overrides
+# ============================================================
+production:
+  processing:
+    parallel_workers: 8
+  logging:
+    level: "WARNING"
+  notifications:
+    on_success: false
+    on_failure: true
+
+staging:
+  processing:
+    parallel_workers: 2
+  validation:
+    min_clusters: 1
+  notifications:
+    on_success: true
+    on_failure: true
+
+development:
+  processing:
+    parallel_workers: 1
+  validation:
+    min_clusters: 1
+    min_sample_size: 30
+  notifications:
+    on_success: true
+    on_failure: true
+  logging:
+    level: "DEBUG"

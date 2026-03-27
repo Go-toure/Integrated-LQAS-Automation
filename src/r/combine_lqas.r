@@ -11,6 +11,9 @@ suppressPackageStartupMessages({
   library(logger)
   library(fs)
   library(argparse)
+  library(stringr)
+  library(stringi)
+  library(janitor)
 })
 
 # Configure logging
@@ -19,9 +22,12 @@ log_info("Starting LQAS combine process")
 
 # Parse arguments
 parser <- ArgumentParser()
-parser$add_argument("--input-dir", default = "data/output", help = "Input directory with CSV files")
-parser$add_argument("--output-file", default = "data/final_lqas_data.csv", help = "Output file path")
-parser$add_argument("--start-date", default = "2019-10-01", help = "Minimum start date filter")
+parser$add_argument("--input-dir", default = "data/output", 
+                    help = "Input directory with CSV files")
+parser$add_argument("--output-file", default = "data/final_lqas_data.csv", 
+                    help = "Output file path")
+parser$add_argument("--start-date", default = "2019-10-01", 
+                    help = "Minimum start date filter")
 args <- parser$parse_args()
 
 log_info("Arguments: input-dir={args$input_dir}, output-file={args$output_file}")
@@ -41,6 +47,11 @@ list_of_files <- list.files(
 
 log_info("Found {length(list_of_files)} CSV files to combine")
 
+if (length(list_of_files) == 0) {
+  log_warn("No CSV files found in {args$input_dir}")
+  quit(status = 0)
+}
+
 # ============================================================
 # READ + COMBINE
 # ============================================================
@@ -56,7 +67,7 @@ A <- lapply(list_of_files, function(x) {
   bind_rows() %>%
   filter(!is.na(response), response != "NA")
 
-log_info("Combined {nrow(A)} rows")
+log_info("Combined {nrow(A)} rows from {length(list_of_files)} files")
 
 # ============================================================
 # FINAL HARMONIZED AFRO LQAS DATASET

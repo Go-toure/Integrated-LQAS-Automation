@@ -9,6 +9,7 @@ on:
     paths:
       - 'src/**'
       - 'config/**'
+      - 'data/input/**'
       - '.github/workflows/**'
   
   # Scheduled runs: every 2 hours
@@ -28,16 +29,30 @@ on:
         required: false
         default: ''
         type: string
+      environment:
+        description: 'Environment to run'
+        required: false
+        default: 'production'
+        type: choice
+        options:
+          - 'production'
+          - 'staging'
+          - 'development'
 
 # Environment variables from GitHub Secrets
 env:
   ONA_API_TOKEN: ${{ secrets.ONA_API_TOKEN }}
   GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+  EMAIL_USER: ${{ secrets.EMAIL_USER }}
+  EMAIL_PASSWORD: ${{ secrets.EMAIL_PASSWORD }}
+  SMTP_SERVER: ${{ secrets.SMTP_SERVER }}
+  SMTP_PORT: ${{ secrets.SMTP_PORT }}
+  NOTIFICATION_EMAILS: ${{ secrets.NOTIFICATION_EMAILS }}
 
+# ============================================================
+# JOB 1: FETCH DATA FROM ONA
+# ============================================================
 jobs:
-  # ============================================================
-  # JOB 1: Fetch data from ONA API
-  # ============================================================
   fetch-data:
     name: 📡 Fetch Data from ONA
     runs-on: ubuntu-latest
@@ -71,6 +86,7 @@ jobs:
           mkdir -p data/output
           mkdir -p data/archive
           mkdir -p data/metadata
+          mkdir -p data/lookup
           mkdir -p logs
           mkdir -p reports
       
@@ -114,12 +130,134 @@ jobs:
           path: logs/
           retention-days: 30
 
-  # ============================================================
-  # JOB 2: Process data with R (parallel chunks)
-  # ============================================================
+# ============================================================
+# JOB 2: SPECIAL CASE - 272.RDS
+# ============================================================
+  special-272:
+    name: 🟢 Special Case - 272.rds
+    runs-on: ubuntu-latest
+    needs: fetch-data
+    if: always()
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      
+      - name: Download fetched data
+        uses: actions/download-artifact@v4
+        with:
+          name: fetched-data
+          path: data/input/
+      
+      - name: Check if 272.rds exists
+        id: check_272
+        run: |
+          if [ -f "data/input/272.rds" ]; then
+            echo "exists=true" >> $GITHUB_OUTPUT
+            echo "✅ 272.rds file found"
+            ls -la data/input/272.rds
+          else
+            echo "exists=false" >> $GITHUB_OUTPUT
+            echo "⚠️ 272.rds file not found"
+          fi
+      
+      - name: Setup R
+        if: steps.check_272.outputs.exists == 'true'
+        uses: r-lib/actions/setup-r@v2
+        with:
+          r-version: '4.3.0'
+          use-public-rspm: true
+      
+      - name: Install R packages
+        if: steps.check_272.outputs.exists == 'true'
+        run: |
+          install.packages(c('tidyverse', 'lubridate', 'qs', 'logger', 'fs', 'argparse', 'readxl'), 
+                           repos='https://cloud.r-project.org/')
+        shell: Rscript {0}
+      
+      - name: Process 272.rds
+        if: steps.check_272.outputs.exists == 'true'
+        run: |
+          Rscript src/r/special_272.R \
+            --input-file data/input/272.rds \
+            --lookup-file data/lookup/lqas_lookup.xlsx \
+            --output-file data/output/272.csv
+      
+      - name: Upload processed 272 data
+        if: steps.check_272.outputs.exists == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: processed-data-special-272
+          path: data/output/272.csv
+          retention-days: 7
+
+# ============================================================
+# JOB 3: SPECIAL CASE - NIGERIA CSV
+# ============================================================
+  special-nigeria:
+    name: 🟢 Special Case - Nigeria CSV
+    runs-on: ubuntu-latest
+    needs: fetch-data
+    if: always()
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      
+      - name: Download fetched data
+        uses: actions/download-artifact@v4
+        with:
+          name: fetched-data
+          path: data/input/
+      
+      - name: Check if Nigeria CSV exists
+        id: check_nigeria
+        run: |
+          if [ -f "data/input/Nigeria_LQAS_int_oct_2025.csv" ]; then
+            echo "exists=true" >> $GITHUB_OUTPUT
+            echo "✅ Nigeria CSV file found"
+            wc -l data/input/Nigeria_LQAS_int_oct_2025.csv
+          else
+            echo "exists=false" >> $GITHUB_OUTPUT
+            echo "⚠️ Nigeria CSV file not found"
+          fi
+      
+      - name: Setup R
+        if: steps.check_nigeria.outputs.exists == 'true'
+        uses: r-lib/actions/setup-r@v2
+        with:
+          r-version: '4.3.0'
+          use-public-rspm: true
+      
+      - name: Install R packages
+        if: steps.check_nigeria.outputs.exists == 'true'
+        run: |
+          install.packages(c('tidyverse', 'lubridate', 'logger', 'fs', 'argparse', 'readxl'), 
+                           repos='https://cloud.r-project.org/')
+        shell: Rscript {0}
+      
+      - name: Process Nigeria CSV
+        if: steps.check_nigeria.outputs.exists == 'true'
+        run: |
+          Rscript src/r/special_nigeria_csv.R \
+            --input-file data/input/Nigeria_LQAS_int_oct_2025.csv \
+            --lookup-file data/lookup/lqas_lookup.xlsx \
+            --output-file data/output/nigeria_processed.csv
+      
+      - name: Upload processed Nigeria data
+        if: steps.check_nigeria.outputs.exists == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: processed-data-special-nigeria
+          path: data/output/nigeria_processed.csv
+          retention-days: 7
+
+# ============================================================
+# JOB 4: PROCESS DATA WITH R (PARALLEL CHUNKS)
+# ============================================================
   process-data:
     name: 🔄 Process Data with R
-    needs: fetch-data
+    needs: [fetch-data, special-272, special-nigeria]
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -136,6 +274,14 @@ jobs:
           name: fetched-data
           path: data/input/
       
+      - name: Download special case data
+        uses: actions/download-artifact@v4
+        with:
+          pattern: processed-data-special-*
+          path: data/output/
+          merge-multiple: true
+        continue-on-error: true
+      
       - name: Setup R
         uses: r-lib/actions/setup-r@v2
         with:
@@ -145,19 +291,8 @@ jobs:
       - name: Install R packages
         run: |
           install.packages(c(
-            'tidyverse',
-            'qs',
-            'logger',
-            'fs',
-            'argparse',
-            'janitor',
-            'readxl',
-            'writexl',
-            'stringr',
-            'lubridate',
-            'dplyr',
-            'tidyr',
-            'purrr'
+            'tidyverse', 'qs', 'logger', 'fs', 'argparse', 'janitor',
+            'readxl', 'writexl', 'stringr', 'lubridate', 'dplyr', 'tidyr'
           ), repos = 'https://cloud.r-project.org/', quiet = TRUE)
         shell: Rscript {0}
       
@@ -165,7 +300,6 @@ jobs:
         run: mkdir -p data/output
       
       - name: Process files (Chunk ${{ matrix.chunk }}/4)
-        id: process_chunk
         run: |
           Rscript src/r/process_lqas.R \
             --input-dir data/input \
@@ -173,7 +307,6 @@ jobs:
             --chunk ${{ matrix.chunk }} \
             --total-chunks 4 \
             ${{ github.event.inputs.force_full == 'true' && '--force-full' || '' }}
-        continue-on-error: false
       
       - name: Upload processed data chunk
         uses: actions/upload-artifact@v4
@@ -190,9 +323,9 @@ jobs:
           path: logs/
           retention-days: 30
 
-  # ============================================================
-  # JOB 3: Combine all processed data and validate
-  # ============================================================
+# ============================================================
+# JOB 5: COMBINE AND VALIDATE
+# ============================================================
   combine-validate:
     name: 🔗 Combine and Validate Data
     needs: process-data
@@ -211,6 +344,26 @@ jobs:
           pattern: processed-data-chunk-*
           path: data/output/
           merge-multiple: true
+      
+      - name: Download special case data
+        uses: actions/download-artifact@v4
+        with:
+          pattern: processed-data-special-*
+          path: data/output/
+          merge-multiple: true
+        continue-on-error: true
+      
+      - name: Setup R
+        uses: r-lib/actions/setup-r@v2
+        with:
+          r-version: '4.3.0'
+          use-public-rspm: true
+      
+      - name: Install R packages
+        run: |
+          install.packages(c('tidyverse', 'lubridate', 'logger', 'fs'), 
+                           repos='https://cloud.r-project.org/')
+        shell: Rscript {0}
       
       - name: Combine and validate data
         id: combine
@@ -236,7 +389,7 @@ jobs:
             log_info('✅ Combined {nrow(combined)} rows, {ncol(combined)} columns')
             
             # Save combined data
-            write_csv(combined, 'data/final_lqas_data.csv')
+            write_csv(combined, 'data/combined_lqas_data.csv')
             
             # Output to GitHub
             cat(paste('records=', nrow(combined), sep=''), file = Sys.getenv('GITHUB_OUTPUT'), append = TRUE)
@@ -269,16 +422,62 @@ jobs:
       - name: Upload combined data
         uses: actions/upload-artifact@v4
         with:
-          name: final-data
-          path: data/final_lqas_data.csv
+          name: combined-data
+          path: data/combined_lqas_data.csv
           retention-days: 30
 
-  # ============================================================
-  # JOB 4: Generate HTML Dashboard
-  # ============================================================
+# ============================================================
+# JOB 6: GEONAME CLEANING
+# ============================================================
+  clean-geoname:
+    name: 🧹 Clean Geoname Data
+    needs: combine-validate
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      
+      - name: Download combined data
+        uses: actions/download-artifact@v4
+        with:
+          name: combined-data
+          path: data/
+      
+      - name: Setup R
+        uses: r-lib/actions/setup-r@v2
+        with:
+          r-version: '4.3.0'
+          use-public-rspm: true
+      
+      - name: Install R packages
+        run: |
+          install.packages(c('tidyverse', 'lubridate', 'logger', 'fs', 'argparse', 
+                           'readxl', 'stringr', 'stringi', 'janitor'), 
+                           repos='https://cloud.r-project.org/')
+        shell: Rscript {0}
+      
+      - name: Run geoname cleaning
+        run: |
+          Rscript src/r/clean_geonames.R \
+            --input-dir data/output \
+            --lookup-file data/lookup/lqas_lookup.xlsx \
+            --output-file data/lqas_final.csv \
+            --start-date "2019-10-01"
+      
+      - name: Upload cleaned data
+        uses: actions/upload-artifact@v4
+        with:
+          name: cleaned-data
+          path: data/lqas_final.csv
+          retention-days: 30
+
+# ============================================================
+# JOB 7: GENERATE DASHBOARD
+# ============================================================
   dashboard:
     name: 📊 Generate Dashboard
-    needs: combine-validate
+    needs: clean-geoname
     runs-on: ubuntu-latest
     
     steps:
@@ -288,8 +487,14 @@ jobs:
       - name: Download final data
         uses: actions/download-artifact@v4
         with:
-          name: final-data
+          name: cleaned-data
           path: data/
+      
+      - name: Setup R
+        uses: r-lib/actions/setup-r@v2
+        with:
+          r-version: '4.3.0'
+          use-public-rspm: true
       
       - name: Create dashboard
         run: |
@@ -297,10 +502,9 @@ jobs:
           Rscript -e "
             library(ggplot2)
             library(dplyr)
-            library(tidyr)
             
             data <- tryCatch({
-              read.csv('data/final_lqas_data.csv')
+              read.csv('data/lqas_final.csv')
             }, error = function(e) {
               message('No data available')
               return(NULL)
@@ -315,17 +519,6 @@ jobs:
                   total_vaccinated = sum(total_vaccinated, na.rm = TRUE),
                   coverage = round(total_vaccinated / total_sampled * 100, 1),
                   districts = n_distinct(district),
-                  .groups = 'drop'
-                ) %>%
-                arrange(desc(coverage))
-              
-              # Create summary by response
-              summary_by_response <- data %>%
-                group_by(response, vaccine.type) %>%
-                summarise(
-                  total_sampled = sum(total_sampled, na.rm = TRUE),
-                  total_vaccinated = sum(total_vaccinated, na.rm = TRUE),
-                  coverage = round(total_vaccinated / total_sampled * 100, 1),
                   .groups = 'drop'
                 ) %>%
                 arrange(desc(coverage))
@@ -347,211 +540,43 @@ jobs:
                   <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">
                   <title>LQAS Data Dashboard</title>
                   <style>
-                      * {
-                          margin: 0;
-                          padding: 0;
-                          box-sizing: border-box;
-                      }
-                      
-                      body {
-                          font-family: -apple-system, BlinkMacSystemFont, \"Segoe UI\", Roboto, Arial, sans-serif;
-                          background: linear-gradient(135deg, #667eea 0%%, #764ba2 100%%);
-                          min-height: 100vh;
-                          padding: 20px;
-                      }
-                      
-                      .container {
-                          max-width: 1400px;
-                          margin: 0 auto;
-                      }
-                      
-                      .header {
-                          background: white;
-                          border-radius: 20px;
-                          padding: 30px;
-                          margin-bottom: 30px;
-                          box-shadow: 0 10px 40px rgba(0,0,0,0.1);
-                      }
-                      
-                      .header h1 {
-                          color: #1e3c72;
-                          font-size: 32px;
-                          margin-bottom: 10px;
-                      }
-                      
-                      .header .subtitle {
-                          color: #666;
-                          font-size: 14px;
-                      }
-                      
-                      .stats-grid {
-                          display: grid;
-                          grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
-                          gap: 20px;
-                          margin-bottom: 30px;
-                      }
-                      
-                      .stat-card {
-                          background: white;
-                          border-radius: 15px;
-                          padding: 20px;
-                          text-align: center;
-                          box-shadow: 0 4px 6px rgba(0,0,0,0.1);
-                          transition: transform 0.3s;
-                      }
-                      
-                      .stat-card:hover {
-                          transform: translateY(-5px);
-                      }
-                      
-                      .stat-number {
-                          font-size: 36px;
-                          font-weight: bold;
-                          color: #2a5298;
-                          margin-bottom: 10px;
-                      }
-                      
-                      .stat-label {
-                          color: #666;
-                          font-size: 14px;
-                      }
-                      
-                      .card {
-                          background: white;
-                          border-radius: 15px;
-                          padding: 25px;
-                          margin-bottom: 30px;
-                          box-shadow: 0 4px 6px rgba(0,0,0,0.1);
-                      }
-                      
-                      .card h2 {
-                          color: #1e3c72;
-                          margin-bottom: 20px;
-                          font-size: 20px;
-                          border-left: 4px solid #2a5298;
-                          padding-left: 15px;
-                      }
-                      
-                      table {
-                          width: 100%%;
-                          border-collapse: collapse;
-                      }
-                      
-                      th, td {
-                          padding: 12px;
-                          text-align: left;
-                          border-bottom: 1px solid #e0e0e0;
-                      }
-                      
-                      th {
-                          background-color: #f8f9fa;
-                          font-weight: 600;
-                          color: #495057;
-                      }
-                      
-                      tr:hover {
-                          background-color: #f8f9fa;
-                      }
-                      
-                      .badge-success {
-                          background: #d4edda;
-                          color: #155724;
-                          padding: 4px 8px;
-                          border-radius: 20px;
-                          font-size: 12px;
-                          font-weight: 500;
-                      }
-                      
-                      .badge-warning {
-                          background: #fff3cd;
-                          color: #856404;
-                          padding: 4px 8px;
-                          border-radius: 20px;
-                          font-size: 12px;
-                          font-weight: 500;
-                      }
-                      
-                      .footer {
-                          text-align: center;
-                          color: white;
-                          margin-top: 30px;
-                          font-size: 12px;
-                      }
-                      
-                      @media (max-width: 768px) {
-                          .stats-grid {
-                              grid-template-columns: 1fr;
-                          }
-                          table {
-                              font-size: 12px;
-                          }
-                      }
+                      * { margin: 0; padding: 0; box-sizing: border-box; }
+                      body { font-family: -apple-system, BlinkMacSystemFont, \"Segoe UI\", Roboto, Arial, sans-serif; background: linear-gradient(135deg, #667eea 0%%, #764ba2 100%%); min-height: 100vh; padding: 20px; }
+                      .container { max-width: 1400px; margin: 0 auto; }
+                      .header { background: white; border-radius: 20px; padding: 30px; margin-bottom: 30px; box-shadow: 0 10px 40px rgba(0,0,0,0.1); }
+                      .header h1 { color: #1e3c72; font-size: 32px; margin-bottom: 10px; }
+                      .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 20px; margin-bottom: 30px; }
+                      .stat-card { background: white; border-radius: 15px; padding: 20px; text-align: center; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
+                      .stat-number { font-size: 32px; font-weight: bold; color: #2a5298; margin-bottom: 10px; }
+                      .card { background: white; border-radius: 15px; padding: 25px; margin-bottom: 30px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
+                      .card h2 { color: #1e3c72; margin-bottom: 20px; border-left: 4px solid #2a5298; padding-left: 15px; }
+                      table { width: 100%%; border-collapse: collapse; }
+                      th, td { padding: 12px; text-align: left; border-bottom: 1px solid #e0e0e0; }
+                      th { background: #f8f9fa; font-weight: 600; }
+                      .badge-success { background: #d4edda; color: #155724; padding: 4px 8px; border-radius: 20px; font-size: 12px; }
+                      .badge-warning { background: #fff3cd; color: #856404; padding: 4px 8px; border-radius: 20px; font-size: 12px; }
+                      .footer { text-align: center; color: white; margin-top: 30px; font-size: 12px; }
                   </style>
               </head>
               <body>
                   <div class=\"container\">
                       <div class=\"header\">
                           <h1>📊 LQAS Data Dashboard</h1>
-                          <div class=\"subtitle\">
-                              Automated Pipeline Report | Generated: %s | GitHub Run: #%s
-                          </div>
+                          <div>Generated: %s | GitHub Run: #%s</div>
                       </div>
-                      
                       <div class=\"stats-grid\">
-                          <div class=\"stat-card\">
-                              <div class=\"stat-number\">%s</div>
-                              <div class=\"stat-label\">Total Records</div>
-                          </div>
-                          <div class=\"stat-card\">
-                              <div class=\"stat-number\">%d</div>
-                              <div class=\"stat-label\">Countries</div>
-                          </div>
-                          <div class=\"stat-card\">
-                              <div class=\"stat-number\">%d</div>
-                              <div class=\"stat-label\">Districts</div>
-                          </div>
-                          <div class=\"stat-card\">
-                              <div class=\"stat-number\">%s</div>
-                              <div class=\"stat-label\">Total Sampled</div>
-                          </div>
-                          <div class=\"stat-card\">
-                              <div class=\"stat-number\">%s</div>
-                              <div class=\"stat-label\">Total Vaccinated</div>
-                          </div>
-                          <div class=\"stat-card\">
-                              <div class=\"stat-number\">%s%%</div>
-                              <div class=\"stat-label\">Overall Coverage</div>
-                          </div>
+                          <div class=\"stat-card\"><div class=\"stat-number\">%s</div><div>Records</div></div>
+                          <div class=\"stat-card\"><div class=\"stat-number\">%d</div><div>Countries</div></div>
+                          <div class=\"stat-card\"><div class=\"stat-number\">%d</div><div>Districts</div></div>
+                          <div class=\"stat-card\"><div class=\"stat-number\">%s</div><div>Sampled</div></div>
+                          <div class=\"stat-card\"><div class=\"stat-number\">%s</div><div>Vaccinated</div></div>
+                          <div class=\"stat-card\"><div class=\"stat-number\">%s%%</div><div>Coverage</div></div>
                       </div>
-                      
                       <div class=\"card\">
                           <h2>🌍 Coverage by Country</h2>
-                           <table>
-                              <thead>
-                                  <tr><th>Country</th><th>Districts</th><th>Sampled</th><th>Vaccinated</th><th>Coverage</th></tr>
-                              </thead>
-                              <tbody>
-                                  %s
-                              </tbody>
-                           </table>
+                          <table><thead><tr><th>Country</th><th>Districts</th><th>Sampled</th><th>Vaccinated</th><th>Coverage</th></tr></thead><tbody>%s</tbody></table>
                       </div>
-                      
-                      <div class=\"card\">
-                          <h2>💉 Coverage by Response/Vaccine</h2>
-                           <table>
-                              <thead>
-                                  <tr><th>Response</th><th>Vaccine Type</th><th>Sampled</th><th>Vaccinated</th><th>Coverage</th></tr>
-                              </thead>
-                              <tbody>
-                                  %s
-                              </tbody>
-                           </table>
-                      </div>
-                      
-                      <div class=\"footer\">
-                          <p>🤖 Fully Automated LQAS Pipeline | Next run: in 2 hours | Data updated: %s</p>
-                          <p style=\"margin-top: 10px; font-size: 11px;\">Dashboard generated by GitHub Actions | <a href=\"https://github.com/%s/%s\" style=\"color: white;\">View Repository</a></p>
-                      </div>
+                      <div class=\"footer\"><p>🤖 Fully Automated LQAS Pipeline | Next run: in 2 hours</p></div>
                   </div>
               </body>
               </html>',
@@ -563,72 +588,21 @@ jobs:
                 format(total_sampled, big.mark = ','),
                 format(total_vaccinated, big.mark = ','),
                 overall_coverage,
-                paste(
-                  apply(summary_by_country, 1, function(row) {
-                    coverage <- as.numeric(row['coverage'])
-                    badge_class <- ifelse(coverage >= 90, 'badge-success', 'badge-warning')
-                    sprintf('
-                      <tr>
-                          <td><strong>%s</strong></td>
-                          <td>%s</td>
-                          <td>%s</td>
-                          <td>%s</td>
-                          <td><span class=\"%s\">%s%%</span></td>
-                      </tr>',
-                      row['country'],
-                      format(as.numeric(row['districts']), big.mark = ','),
-                      format(as.numeric(row['total_sampled']), big.mark = ','),
-                      format(as.numeric(row['total_vaccinated']), big.mark = ','),
-                      badge_class,
-                      row['coverage']
-                    )
-                  }),
-                  collapse = '\n'
-                ),
-                paste(
-                  apply(head(summary_by_response, 15), 1, function(row) {
-                    coverage <- as.numeric(row['coverage'])
-                    badge_class <- ifelse(coverage >= 90, 'badge-success', 'badge-warning')
-                    sprintf('
-                      <tr>
-                          <td>%s</td>
-                          <td>%s</td>
-                          <td>%s</td>
-                          <td>%s</td>
-                          <td><span class=\"%s\">%s%%</span></td>
-                      </tr>',
-                      row['response'],
-                      row['vaccine.type'],
-                      format(as.numeric(row['total_sampled']), big.mark = ','),
-                      format(as.numeric(row['total_vaccinated']), big.mark = ','),
-                      badge_class,
-                      row['coverage']
-                    )
-                  }),
-                  collapse = '\n'
-                ),
-                format(Sys.time(), '%Y-%m-%d %H:%M:%S'),
-                Sys.getenv('GITHUB_REPOSITORY_OWNER', 'your-username'),
-                Sys.getenv('GITHUB_REPOSITORY_NAME', 'lqas-automation')
+                paste(apply(head(summary_by_country, 20), 1, function(row) {
+                  badge <- ifelse(as.numeric(row['coverage']) >= 90, 'badge-success', 'badge-warning')
+                  sprintf('<tr><td><strong>%s</strong></td><td>%s</td><td>%s</td><td>%s</td><td><span class=\"%s\">%s%%</span></td></tr>',
+                    row['country'], format(as.numeric(row['districts']), big.mark = ','),
+                    format(as.numeric(row['total_sampled']), big.mark = ','),
+                    format(as.numeric(row['total_vaccinated']), big.mark = ','), badge, row['coverage'])
+                }), collapse = '\n')
               )
               
               writeLines(html, 'reports/dashboard.html')
-              message('✅ Dashboard generated successfully')
+              message('✅ Dashboard generated')
             } else {
-              writeLines('
-              <!DOCTYPE html>
-              <html>
-              <head><title>LQAS Dashboard</title></head>
-              <body style=\"font-family: Arial; text-align: center; padding: 50px;\">
-                  <h1>📊 LQAS Dashboard</h1>
-                  <p>No data available yet. Please check the pipeline logs.</p>
-                  <p>Pipeline Status: <a href=\"https://github.com/%s/%s/actions\">View GitHub Actions</a></p>
-              </body>
-              </html>', 'reports/dashboard.html')
-              message('⚠️ No data to display')
+              writeLines('<html><body><h1>No data available</h1></body></html>', 'reports/dashboard.html')
             }
           "
-        shell: Rscript {0}
       
       - name: Upload dashboard
         uses: actions/upload-artifact@v4
@@ -645,24 +619,15 @@ jobs:
           publish_branch: gh-pages
           destination_dir: latest
           keep_files: false
-      
-      - name: Create versioned dashboard
-        uses: peaceiris/actions-gh-pages@v3
-        with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          publish_dir: ./reports
-          publish_branch: gh-pages
-          destination_dir: ${{ github.run_number }}
-          keep_files: true
 
-  # ============================================================
-  # JOB 5: Send Notifications (Optional - if emails configured)
-  # ============================================================
+# ============================================================
+# JOB 8: SEND NOTIFICATIONS
+# ============================================================
   notify:
     name: 📧 Send Notifications
-    needs: [fetch-data, process-data, combine-validate, dashboard]
+    needs: [fetch-data, process-data, combine-validate, clean-geoname, dashboard]
     runs-on: ubuntu-latest
-    if: always() && secrets.EMAIL_USER != '' && secrets.EMAIL_PASSWORD != ''
+    if: always() && env.EMAIL_USER != '' && env.EMAIL_PASSWORD != ''
     
     steps:
       - name: Check status
@@ -670,7 +635,8 @@ jobs:
         run: |
           if [[ "${{ needs.fetch-data.result }}" == "success" && \
                 "${{ needs.process-data.result }}" == "success" && \
-                "${{ needs.combine-validate.result }}" == "success" ]]; then
+                "${{ needs.combine-validate.result }}" == "success" && \
+                "${{ needs.clean-geoname.result }}" == "success" ]]; then
             echo "status=success" >> $GITHUB_OUTPUT
             echo "emoji=✅" >> $GITHUB_OUTPUT
             echo "message=SUCCESS" >> $GITHUB_OUTPUT
@@ -697,16 +663,19 @@ jobs:
             **Status:** ${{ steps.status.outputs.emoji }} ${{ steps.status.outputs.message }}
             **Run ID:** #${{ github.run_number }}
             **Trigger:** ${{ github.event_name }}
-            **Time:** ${{ github.event.head_commit.timestamp || github.event.schedule || 'manual' }}
+            **Environment:** ${{ github.event.inputs.environment || 'production' }}
             
             ## 📊 Processing Summary
             
-            | Component | Status | Details |
-            |-----------|--------|---------|
-            | Data Fetch | ${{ needs.fetch-data.result }} | ${{ needs.fetch-data.outputs.files_fetched || 0 }} files |
-            | R Processing | ${{ needs.process-data.result }} | 4 parallel chunks |
-            | Validation | ${{ needs.combine-validate.result }} | ${{ needs.combine-validate.outputs.total_records || 0 }} records |
-            | Dashboard | ${{ needs.dashboard.result }} | Deployed to GitHub Pages |
+            | Component | Status |
+            |-----------|--------|
+            | Data Fetch | ${{ needs.fetch-data.result }} |
+            | Special Case 272 | ${{ needs.special-272.result }} |
+            | Special Case Nigeria | ${{ needs.special-nigeria.result }} |
+            | R Processing | ${{ needs.process-data.result }} |
+            | Validation | ${{ needs.combine-validate.result }} |
+            | Geoname Cleaning | ${{ needs.clean-geoname.result }} |
+            | Dashboard | ${{ needs.dashboard.result }} |
             
             ${{ steps.status.outputs.status == 'success' && '## 📈 Dashboard\n\nView the live dashboard at:\nhttps://' + github.repository_owner + '.github.io/' + github.event.repository.name + '/latest/dashboard.html' || '' }}
             
@@ -714,3 +683,34 @@ jobs:
             
             ---
             *This is an automated message from the LQAS Pipeline | Next scheduled run: in 2 hours*
+      
+      - name: Create GitHub Issue on Failure
+        if: steps.status.outputs.status == 'failed'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: `❌ LQAS Pipeline Failed - Run #${context.runId}`,
+              body: `## Pipeline Failure Report
+            
+              **Run ID:** ${context.runId}
+              **Trigger:** ${context.eventName}
+              **Time:** ${new Date().toISOString()}
+              
+              ### Failed Jobs:
+              - Fetch: ${{ needs.fetch-data.result }}
+              - Special 272: ${{ needs.special-272.result }}
+              - Special Nigeria: ${{ needs.special-nigeria.result }}
+              - Processing: ${{ needs.process-data.result }}
+              - Validation: ${{ needs.combine-validate.result }}
+              - Geoname: ${{ needs.clean-geoname.result }}
+              - Dashboard: ${{ needs.dashboard.result }}
+              
+              ### Action URL:
+              ${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}
+              
+              Please investigate and fix the issues.`,
+              labels: ['pipeline-failure', 'urgent']
+            })
