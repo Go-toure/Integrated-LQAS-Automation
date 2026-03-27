@@ -101,8 +101,15 @@ jobs:
           Rscript -e "
             lib_path <- Sys.getenv('R_LIBS_USER')
             .libPaths(c(lib_path, .libPaths()))
-            library(qs)
-            message('qs package loaded successfully')
+            cat('Library paths:', .libPaths(), '\n')
+            if (requireNamespace('qs', quietly = TRUE)) {
+              library(qs)
+              cat('✅ qs package version:', as.character(packageVersion('qs')), '\n')
+              cat('✅ qs package loaded successfully\n')
+            } else {
+              cat('❌ qs package not found in:', .libPaths(), '\n')
+              quit(status = 1)
+            }
           "
         env:
           R_LIBS_USER: ~/R/library
