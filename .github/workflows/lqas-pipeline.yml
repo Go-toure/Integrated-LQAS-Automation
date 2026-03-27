@@ -55,14 +55,26 @@ jobs:
         with:
           python-version: '3.11'
           cache: 'pip'
-      - name: Install R (required for rpy2)
+      - name: Install R and system dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y r-base r-base-dev libcurl4-openssl-dev libssl-dev
+          sudo apt-get install -y r-base r-base-dev libcurl4-openssl-dev libssl-dev libtirpc-dev
+      - name: Set R_HOME environment variable
+        run: |
+          echo "R_HOME=$(R RHOME)" >> $GITHUB_ENV
+          echo "R_HOME is set to: $(R RHOME)"
       - name: Install Python dependencies
         run: |
           pip install --upgrade pip
-          pip install pandas requests pyyaml rpy2 python-dotenv
+          pip install pandas requests pyyaml python-dotenv
+          export RPY2_CFFI_MODE=ABI
+          pip install rpy2
+        env:
+          RPY2_CFFI_MODE: ABI
+      - name: Verify rpy2 installation
+        run: |
+          python -c "import rpy2; print('rpy2 imported successfully')"
+          python -c "import rpy2.robjects as ro; print('R objects imported successfully')"
       - name: Create directories
         run: |
           mkdir -p data/input data/output data/archive data/metadata data/lookup logs reports
@@ -80,6 +92,7 @@ jobs:
           GITHUB_RUN_ID: ${{ github.run_id }}
           GITHUB_SHA: ${{ github.sha }}
           GITHUB_WORKFLOW: ${{ github.workflow }}
+          R_HOME: ${{ env.R_HOME }}
       - name: Count fetched files
         id: count_files
         run: |
@@ -366,8 +379,39 @@ jobs:
             data <- read.csv('data/lqas_final.csv')
             total_records <- nrow(data)
             total_countries <- n_distinct(data$country)
-            html <- sprintf('<html><body><h1>LQAS Dashboard</h1><p>Records: %s</p><p>Countries: %d</p><p>Generated: %s</p></body></html>',
-              format(total_records, big.mark = ','), total_countries, Sys.Date())
+            html <- sprintf('
+            <!DOCTYPE html>
+            <html>
+            <head><title>LQAS Dashboard</title>
+            <style>
+              body { font-family: Arial; margin: 20px; background: #f5f5f5; }
+              .container { max-width: 1200px; margin: 0 auto; }
+              .header { background: linear-gradient(135deg, #1e3c72 0%%, #2a5298 100%%); color: white; padding: 20px; border-radius: 10px; }
+              .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 20px; margin: 20px 0; }
+              .card { background: white; padding: 20px; border-radius: 10px; text-align: center; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+              .number { font-size: 32px; font-weight: bold; color: #2a5298; }
+              .footer { text-align: center; margin-top: 20px; color: #666; }
+            </style>
+            </head>
+            <body>
+            <div class=\"container\">
+              <div class=\"header\">
+                <h1>📊 LQAS Data Dashboard</h1>
+                <p>Generated: %s | GitHub Run: #%s</p>
+              </div>
+              <div class=\"stats\">
+                <div class=\"card\"><div class=\"number\">%s</div><div>Records</div></div>
+                <div class=\"card\"><div class=\"number\">%d</div><div>Countries</div></div>
+              </div>
+              <div class=\"footer\"><p>🤖 Fully Automated LQAS Pipeline | Next run: in 2 hours</p></div>
+            </div>
+            </body>
+            </html>',
+              Sys.Date(),
+              Sys.getenv('GITHUB_RUN_ID', 'local'),
+              format(total_records, big.mark = ','),
+              total_countries
+            )
             writeLines(html, 'reports/dashboard.html')
           "
       - name: Upload dashboard
