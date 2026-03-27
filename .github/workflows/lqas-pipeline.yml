@@ -622,7 +622,7 @@ jobs:
     name: 📧 Send Notifications
     needs: [fetch-data, process-data, combine-validate, clean-geoname, dashboard]
     runs-on: ubuntu-latest
-    if: always() && secrets.EMAIL_USER != '' && secrets.EMAIL_PASSWORD != ''
+    if: always()
     
     steps:
       - name: Check status
@@ -642,6 +642,7 @@ jobs:
           fi
       
       - name: Send email notification
+        if: env.EMAIL_USER != '' && env.EMAIL_PASSWORD != ''
         uses: dawidd6/action-send-mail@v3
         with:
           server_address: ${{ secrets.SMTP_SERVER }}
