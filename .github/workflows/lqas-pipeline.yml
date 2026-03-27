@@ -574,7 +574,7 @@ jobs:
                       </div>
                       <div class=\"card\">
                           <h2>🌍 Coverage by Country</h2>
-                          <table><thead><tr><th>Country</th><th>Districts</th><th>Sampled</th><th>Vaccinated</th><th>Coverage</th></tr></thead><tbody>%s</tbody></table>
+                           <table> <thead> <tr> <th>Country</th> <th>Districts</th> <th>Sampled</th> <th>Vaccinated</th> <th>Coverage</th> </tr> </thead> <tbody> %s </tbody> </table>
                       </div>
                       <div class=\"footer\"><p>🤖 Fully Automated LQAS Pipeline | Next run: in 2 hours</p></div>
                   </div>
@@ -677,9 +677,9 @@ jobs:
             | Geoname Cleaning | ${{ needs.clean-geoname.result }} |
             | Dashboard | ${{ needs.dashboard.result }} |
             
-            ${{ steps.status.outputs.status == 'success' && '## 📈 Dashboard\n\nView the live dashboard at:\nhttps://' + github.repository_owner + '.github.io/' + github.event.repository.name + '/latest/dashboard.html' || '' }}
+            ${{ steps.status.outputs.status == 'success' && '## 📈 Dashboard\n\nView the live dashboard at:\nhttps://' || '' }}${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/latest/dashboard.html
             
-            ${{ steps.status.outputs.status == 'failed' && '## 🔧 Action Required\n\nPlease check the GitHub Actions logs for details:\n' + github.server_url + '/' + github.repository + '/actions/runs/' + github.run_id || '' }}
+            ${{ steps.status.outputs.status == 'failed' && '## 🔧 Action Required\n\nPlease check the GitHub Actions logs for details:\n' || '' }}${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
             
             ---
             *This is an automated message from the LQAS Pipeline | Next scheduled run: in 2 hours*
