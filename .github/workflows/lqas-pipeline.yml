@@ -1,7 +1,6 @@
 name: LQAS Complete Pipeline
 
 on:
-  # Trigger on push to main/master branch
   push:
     branches:
       - main
@@ -11,12 +10,8 @@ on:
       - 'config/**'
       - 'data/input/**'
       - '.github/workflows/**'
-  
-  # Scheduled runs: every 2 hours
   schedule:
     - cron: '0 */2 * * *'
-  
-  # Manual trigger from GitHub UI
   workflow_dispatch:
     inputs:
       force_full:
@@ -39,14 +34,11 @@ on:
           - 'staging'
           - 'development'
 
-# Environment variables from GitHub Secrets
 env:
   ONA_API_TOKEN: ${{ secrets.ONA_API_TOKEN }}
   GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-# ============================================================
-# JOB 1: FETCH DATA FROM ONA
-# ============================================================
+jobs:
   fetch-data:
     name: 📡 Fetch Data from ONA
     runs-on: ubuntu-latest
@@ -55,42 +47,28 @@ env:
     outputs:
       files_fetched: ${{ steps.count_files.outputs.count }}
       fetch_status: ${{ steps.fetch.outcome }}
-    
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-      
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
           cache: 'pip'
-      
       - name: Install R (required for rpy2)
         run: |
           sudo apt-get update
           sudo apt-get install -y r-base r-base-dev libcurl4-openssl-dev libssl-dev
-      
       - name: Install Python dependencies
         run: |
           pip install --upgrade pip
           pip install pandas requests pyyaml rpy2 python-dotenv
-        continue-on-error: false
-      
       - name: Create directories
         run: |
-          mkdir -p data/input
-          mkdir -p data/output
-          mkdir -p data/archive
-          mkdir -p data/metadata
-          mkdir -p data/lookup
-          mkdir -p logs
-          mkdir -p reports
-      
+          mkdir -p data/input data/output data/archive data/metadata data/lookup logs reports
       - name: Install R package (qs)
         run: |
           Rscript -e "install.packages('qs', repos='https://cloud.r-project.org/', quiet=TRUE)"
-      
       - name: Fetch data from ONA
         id: fetch
         run: |
@@ -102,21 +80,12 @@ env:
           GITHUB_RUN_ID: ${{ github.run_id }}
           GITHUB_SHA: ${{ github.sha }}
           GITHUB_WORKFLOW: ${{ github.workflow }}
-          ONA_API_TOKEN: ${{ secrets.ONA_API_TOKEN }}
-      
       - name: Count fetched files
         id: count_files
         run: |
           count=$(ls -1 data/input/*.rds 2>/dev/null | wc -l)
           echo "count=$count" >> $GITHUB_OUTPUT
           echo "📊 Total files fetched: $count"
-          
-          if [ $count -gt 0 ]; then
-            echo "✅ Successfully fetched $count files"
-          else
-            echo "⚠️ No files were fetched"
-          fi
-      
       - name: Upload fetched data artifact
         uses: actions/upload-artifact@v4
         with:
@@ -124,7 +93,6 @@ env:
           path: data/input/
           retention-days: 7
           if-no-files-found: warn
-      
       - name: Upload fetch logs
         if: always()
         uses: actions/upload-artifact@v4
@@ -134,51 +102,39 @@ env:
           retention-days: 30
           if-no-files-found: ignore
 
-# ============================================================
-# JOB 2: SPECIAL CASE - 272.RDS
-# ============================================================
   special-272:
     name: 🟢 Special Case - 272.rds
     runs-on: ubuntu-latest
     needs: fetch-data
     if: always()
-    
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-      
       - name: Download fetched data
         uses: actions/download-artifact@v4
         with:
           name: fetched-data
           path: data/input/
-      
       - name: Check if 272.rds exists
         id: check_272
         run: |
           if [ -f "data/input/272.rds" ]; then
             echo "exists=true" >> $GITHUB_OUTPUT
             echo "✅ 272.rds file found"
-            ls -la data/input/272.rds
           else
             echo "exists=false" >> $GITHUB_OUTPUT
-            echo "⚠️ 272.rds file not found"
           fi
-      
       - name: Setup R
         if: steps.check_272.outputs.exists == 'true'
         uses: r-lib/actions/setup-r@v2
         with:
           r-version: '4.3.0'
           use-public-rspm: true
-      
       - name: Install R packages
         if: steps.check_272.outputs.exists == 'true'
         run: |
-          install.packages(c('tidyverse', 'lubridate', 'qs', 'logger', 'fs', 'argparse', 'readxl'), 
-                           repos='https://cloud.r-project.org/')
+          install.packages(c('tidyverse', 'lubridate', 'qs', 'logger', 'fs', 'argparse', 'readxl'), repos='https://cloud.r-project.org/')
         shell: Rscript {0}
-      
       - name: Process 272.rds
         if: steps.check_272.outputs.exists == 'true'
         run: |
@@ -186,7 +142,6 @@ env:
             --input-file data/input/272.rds \
             --lookup-file data/lookup/lqas_lookup.xlsx \
             --output-file data/output/272.csv
-      
       - name: Upload processed 272 data
         if: steps.check_272.outputs.exists == 'true'
         uses: actions/upload-artifact@v4
@@ -195,51 +150,39 @@ env:
           path: data/output/272.csv
           retention-days: 7
 
-# ============================================================
-# JOB 3: SPECIAL CASE - NIGERIA CSV
-# ============================================================
   special-nigeria:
     name: 🟢 Special Case - Nigeria CSV
     runs-on: ubuntu-latest
     needs: fetch-data
     if: always()
-    
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-      
       - name: Download fetched data
         uses: actions/download-artifact@v4
         with:
           name: fetched-data
           path: data/input/
-      
       - name: Check if Nigeria CSV exists
         id: check_nigeria
         run: |
           if [ -f "data/input/Nigeria_LQAS_int_oct_2025.csv" ]; then
             echo "exists=true" >> $GITHUB_OUTPUT
             echo "✅ Nigeria CSV file found"
-            wc -l data/input/Nigeria_LQAS_int_oct_2025.csv
           else
             echo "exists=false" >> $GITHUB_OUTPUT
-            echo "⚠️ Nigeria CSV file not found"
           fi
-      
       - name: Setup R
         if: steps.check_nigeria.outputs.exists == 'true'
         uses: r-lib/actions/setup-r@v2
         with:
           r-version: '4.3.0'
           use-public-rspm: true
-      
       - name: Install R packages
         if: steps.check_nigeria.outputs.exists == 'true'
         run: |
-          install.packages(c('tidyverse', 'lubridate', 'logger', 'fs', 'argparse', 'readxl'), 
-                           repos='https://cloud.r-project.org/')
+          install.packages(c('tidyverse', 'lubridate', 'logger', 'fs', 'argparse', 'readxl'), repos='https://cloud.r-project.org/')
         shell: Rscript {0}
-      
       - name: Process Nigeria CSV
         if: steps.check_nigeria.outputs.exists == 'true'
         run: |
@@ -247,7 +190,6 @@ env:
             --input-file data/input/Nigeria_LQAS_int_oct_2025.csv \
             --lookup-file data/lookup/lqas_lookup.xlsx \
             --output-file data/output/nigeria_processed.csv
-      
       - name: Upload processed Nigeria data
         if: steps.check_nigeria.outputs.exists == 'true'
         uses: actions/upload-artifact@v4
@@ -256,9 +198,6 @@ env:
           path: data/output/nigeria_processed.csv
           retention-days: 7
 
-# ============================================================
-# JOB 4: PROCESS DATA WITH R (PARALLEL CHUNKS)
-# ============================================================
   process-data:
     name: 🔄 Process Data with R
     needs: [fetch-data, special-272, special-nigeria]
@@ -267,17 +206,14 @@ env:
       fail-fast: false
       matrix:
         chunk: [1, 2, 3, 4]
-    
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-      
       - name: Download fetched data
         uses: actions/download-artifact@v4
         with:
           name: fetched-data
           path: data/input/
-      
       - name: Download special case data
         uses: actions/download-artifact@v4
         with:
@@ -285,24 +221,17 @@ env:
           path: data/output/
           merge-multiple: true
         continue-on-error: true
-      
       - name: Setup R
         uses: r-lib/actions/setup-r@v2
         with:
           r-version: '4.3.0'
           use-public-rspm: true
-      
       - name: Install R packages
         run: |
-          install.packages(c(
-            'tidyverse', 'qs', 'logger', 'fs', 'argparse', 'janitor',
-            'readxl', 'writexl', 'stringr', 'lubridate', 'dplyr', 'tidyr'
-          ), repos = 'https://cloud.r-project.org/', quiet = TRUE)
+          install.packages(c('tidyverse', 'qs', 'logger', 'fs', 'argparse', 'janitor', 'readxl', 'writexl', 'stringr', 'lubridate', 'dplyr', 'tidyr'), repos='https://cloud.r-project.org/', quiet = TRUE)
         shell: Rscript {0}
-      
       - name: Create output directory
         run: mkdir -p data/output
-      
       - name: Process files (Chunk ${{ matrix.chunk }}/4)
         run: |
           Rscript src/r/process_lqas.R \
@@ -311,14 +240,12 @@ env:
             --chunk ${{ matrix.chunk }} \
             --total-chunks 4 \
             ${{ github.event.inputs.force_full == 'true' && '--force-full' || '' }}
-      
       - name: Upload processed data chunk
         uses: actions/upload-artifact@v4
         with:
           name: processed-data-chunk-${{ matrix.chunk }}
           path: data/output/
           retention-days: 7
-      
       - name: Upload processing logs
         if: always()
         uses: actions/upload-artifact@v4
@@ -326,29 +253,23 @@ env:
           name: processing-logs-chunk-${{ matrix.chunk }}
           path: logs/
           retention-days: 30
+          if-no-files-found: ignore
 
-# ============================================================
-# JOB 5: COMBINE AND VALIDATE
-# ============================================================
   combine-validate:
     name: 🔗 Combine and Validate Data
     needs: process-data
     runs-on: ubuntu-latest
     outputs:
       total_records: ${{ steps.combine.outputs.records }}
-      validation_status: ${{ steps.validate.outputs.status }}
-    
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-      
       - name: Download all processed data chunks
         uses: actions/download-artifact@v4
         with:
           pattern: processed-data-chunk-*
           path: data/output/
           merge-multiple: true
-      
       - name: Download special case data
         uses: actions/download-artifact@v4
         with:
@@ -356,73 +277,27 @@ env:
           path: data/output/
           merge-multiple: true
         continue-on-error: true
-      
       - name: Setup R
         uses: r-lib/actions/setup-r@v2
         with:
           r-version: '4.3.0'
           use-public-rspm: true
-      
       - name: Install R packages
         run: |
-          install.packages(c('tidyverse', 'lubridate', 'logger', 'fs'), 
-                           repos='https://cloud.r-project.org/')
+          install.packages(c('tidyverse', 'lubridate', 'logger', 'fs'), repos='https://cloud.r-project.org/')
         shell: Rscript {0}
-      
       - name: Combine and validate data
         id: combine
         run: |
           Rscript -e "
             library(dplyr)
             library(readr)
-            library(logger)
-            
-            log_info('Starting data combination...')
-            
-            # Find all CSV files
             files <- list.files('data/output/', pattern = '\\.csv$', full.names = TRUE)
-            log_info('Found {length(files)} CSV files')
-            
-            if (length(files) == 0) {
-              log_warn('No output files found to combine')
-              quit(status = 0)
-            }
-            
-            # Combine all files
             combined <- purrr::map_dfr(files, read_csv, show_col_types = FALSE)
-            log_info('✅ Combined {nrow(combined)} rows, {ncol(combined)} columns')
-            
-            # Save combined data
             write_csv(combined, 'data/combined_lqas_data.csv')
-            
-            # Output to GitHub
             cat(paste('records=', nrow(combined), sep=''), file = Sys.getenv('GITHUB_OUTPUT'), append = TRUE)
-            
-            # Basic validation
-            required_cols <- c('country', 'province', 'district', 'total_sampled', 'total_vaccinated')
-            missing_cols <- setdiff(required_cols, names(combined))
-            
-            if (length(missing_cols) > 0) {
-              log_warn('⚠️ Missing columns: {paste(missing_cols, collapse = \", \")}')
-              cat('status=warning', file = Sys.getenv('GITHUB_OUTPUT'), append = TRUE)
-            } else {
-              log_info('✅ All required columns present')
-              
-              # Calculate summary stats
-              total_samples <- sum(combined$total_sampled, na.rm = TRUE)
-              total_vaccinated <- sum(combined$total_vaccinated, na.rm = TRUE)
-              coverage <- round(total_vaccinated / total_samples * 100, 1)
-              
-              log_info('📊 Summary Statistics:')
-              log_info('   Total sampled: {format(total_samples, big.mark = \",\")}')
-              log_info('   Total vaccinated: {format(total_vaccinated, big.mark = \",\")}')
-              log_info('   Overall coverage: {coverage}%')
-              
-              cat('status=success', file = Sys.getenv('GITHUB_OUTPUT'), append = TRUE)
-            }
           "
         shell: bash
-      
       - name: Upload combined data
         uses: actions/upload-artifact@v4
         with:
@@ -430,37 +305,27 @@ env:
           path: data/combined_lqas_data.csv
           retention-days: 30
 
-# ============================================================
-# JOB 6: GEONAME CLEANING
-# ============================================================
   clean-geoname:
     name: 🧹 Clean Geoname Data
     needs: combine-validate
     runs-on: ubuntu-latest
-    
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-      
       - name: Download combined data
         uses: actions/download-artifact@v4
         with:
           name: combined-data
           path: data/
-      
       - name: Setup R
         uses: r-lib/actions/setup-r@v2
         with:
           r-version: '4.3.0'
           use-public-rspm: true
-      
       - name: Install R packages
         run: |
-          install.packages(c('tidyverse', 'lubridate', 'logger', 'fs', 'argparse', 
-                           'readxl', 'stringr', 'stringi', 'janitor'), 
-                           repos='https://cloud.r-project.org/')
+          install.packages(c('tidyverse', 'lubridate', 'logger', 'fs', 'argparse', 'readxl', 'stringr', 'stringi', 'janitor'), repos='https://cloud.r-project.org/')
         shell: Rscript {0}
-      
       - name: Run geoname cleaning
         run: |
           Rscript src/r/clean_geonames.R \
@@ -468,7 +333,6 @@ env:
             --lookup-file data/lookup/lqas_lookup.xlsx \
             --output-file data/lqas_final.csv \
             --start-date "2019-10-01"
-      
       - name: Upload cleaned data
         uses: actions/upload-artifact@v4
         with:
@@ -476,145 +340,42 @@ env:
           path: data/lqas_final.csv
           retention-days: 30
 
-# ============================================================
-# JOB 7: GENERATE DASHBOARD
-# ============================================================
   dashboard:
     name: 📊 Generate Dashboard
     needs: clean-geoname
     runs-on: ubuntu-latest
-    
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-      
       - name: Download final data
         uses: actions/download-artifact@v4
         with:
           name: cleaned-data
           path: data/
-      
       - name: Setup R
         uses: r-lib/actions/setup-r@v2
         with:
           r-version: '4.3.0'
           use-public-rspm: true
-      
       - name: Create dashboard
         run: |
           mkdir -p reports
           Rscript -e "
             library(ggplot2)
             library(dplyr)
-            
-            data <- tryCatch({
-              read.csv('data/lqas_final.csv')
-            }, error = function(e) {
-              message('No data available')
-              return(NULL)
-            })
-            
-            if (!is.null(data) && nrow(data) > 0) {
-              # Create summary by country
-              summary_by_country <- data %>%
-                group_by(country) %>%
-                summarise(
-                  total_sampled = sum(total_sampled, na.rm = TRUE),
-                  total_vaccinated = sum(total_vaccinated, na.rm = TRUE),
-                  coverage = round(total_vaccinated / total_sampled * 100, 1),
-                  districts = n_distinct(district),
-                  .groups = 'drop'
-                ) %>%
-                arrange(desc(coverage))
-              
-              # Calculate overall metrics
-              total_records <- nrow(data)
-              total_countries <- n_distinct(data$country)
-              total_districts <- n_distinct(data$district)
-              total_sampled <- sum(data$total_sampled, na.rm = TRUE)
-              total_vaccinated <- sum(data$total_vaccinated, na.rm = TRUE)
-              overall_coverage <- round(total_vaccinated / total_sampled * 100, 1)
-              
-              # Generate HTML dashboard
-              html <- sprintf('
-              <!DOCTYPE html>
-              <html lang=\"en\">
-              <head>
-                  <meta charset=\"UTF-8\">
-                  <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">
-                  <title>LQAS Data Dashboard</title>
-                  <style>
-                      * { margin: 0; padding: 0; box-sizing: border-box; }
-                      body { font-family: -apple-system, BlinkMacSystemFont, \"Segoe UI\", Roboto, Arial, sans-serif; background: linear-gradient(135deg, #667eea 0%%, #764ba2 100%%); min-height: 100vh; padding: 20px; }
-                      .container { max-width: 1400px; margin: 0 auto; }
-                      .header { background: white; border-radius: 20px; padding: 30px; margin-bottom: 30px; box-shadow: 0 10px 40px rgba(0,0,0,0.1); }
-                      .header h1 { color: #1e3c72; font-size: 32px; margin-bottom: 10px; }
-                      .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 20px; margin-bottom: 30px; }
-                      .stat-card { background: white; border-radius: 15px; padding: 20px; text-align: center; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
-                      .stat-number { font-size: 32px; font-weight: bold; color: #2a5298; margin-bottom: 10px; }
-                      .card { background: white; border-radius: 15px; padding: 25px; margin-bottom: 30px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
-                      .card h2 { color: #1e3c72; margin-bottom: 20px; border-left: 4px solid #2a5298; padding-left: 15px; }
-                      table { width: 100%%; border-collapse: collapse; }
-                      th, td { padding: 12px; text-align: left; border-bottom: 1px solid #e0e0e0; }
-                      th { background: #f8f9fa; font-weight: 600; }
-                      .badge-success { background: #d4edda; color: #155724; padding: 4px 8px; border-radius: 20px; font-size: 12px; }
-                      .badge-warning { background: #fff3cd; color: #856404; padding: 4px 8px; border-radius: 20px; font-size: 12px; }
-                      .footer { text-align: center; color: white; margin-top: 30px; font-size: 12px; }
-                  </style>
-              </head>
-              <body>
-                  <div class=\"container\">
-                      <div class=\"header\">
-                          <h1>📊 LQAS Data Dashboard</h1>
-                          <div>Generated: %s | GitHub Run: #%s</div>
-                      </div>
-                      <div class=\"stats-grid\">
-                          <div class=\"stat-card\"><div class=\"stat-number\">%s</div><div>Records</div></div>
-                          <div class=\"stat-card\"><div class=\"stat-number\">%d</div><div>Countries</div></div>
-                          <div class=\"stat-card\"><div class=\"stat-number\">%d</div><div>Districts</div></div>
-                          <div class=\"stat-card\"><div class=\"stat-number\">%s</div><div>Sampled</div></div>
-                          <div class=\"stat-card\"><div class=\"stat-number\">%s</div><div>Vaccinated</div></div>
-                          <div class=\"stat-card\"><div class=\"stat-number\">%s%%</div><div>Coverage</div></div>
-                      </div>
-                      <div class=\"card\">
-                          <h2>🌍 Coverage by Country</h2>
-                           <table> <thead> <tr> <th>Country</th> <th>Districts</th> <th>Sampled</th> <th>Vaccinated</th> <th>Coverage</th> </tr> </thead> <tbody> %s </tbody> </table>
-                      </div>
-                      <div class=\"footer\"><p>🤖 Fully Automated LQAS Pipeline | Next run: in 2 hours</p></div>
-                  </div>
-              </body>
-              </html>',
-                Sys.Date(),
-                Sys.getenv('GITHUB_RUN_ID', 'local'),
-                format(total_records, big.mark = ','),
-                total_countries,
-                total_districts,
-                format(total_sampled, big.mark = ','),
-                format(total_vaccinated, big.mark = ','),
-                overall_coverage,
-                paste(apply(head(summary_by_country, 20), 1, function(row) {
-                  badge <- ifelse(as.numeric(row['coverage']) >= 90, 'badge-success', 'badge-warning')
-                  sprintf('<tr><td><strong>%s</strong></td><td>%s</td><td>%s</td><td>%s</td><td><span class=\"%s\">%s%%</span></td></tr>',
-                    row['country'], format(as.numeric(row['districts']), big.mark = ','),
-                    format(as.numeric(row['total_sampled']), big.mark = ','),
-                    format(as.numeric(row['total_vaccinated']), big.mark = ','), badge, row['coverage'])
-                }), collapse = '\n')
-              )
-              
-              writeLines(html, 'reports/dashboard.html')
-              message('✅ Dashboard generated')
-            } else {
-              writeLines('<html><body><h1>No data available</h1></body></html>', 'reports/dashboard.html')
-            }
+            data <- read.csv('data/lqas_final.csv')
+            total_records <- nrow(data)
+            total_countries <- n_distinct(data$country)
+            html <- sprintf('<html><body><h1>LQAS Dashboard</h1><p>Records: %s</p><p>Countries: %d</p><p>Generated: %s</p></body></html>',
+              format(total_records, big.mark = ','), total_countries, Sys.Date())
+            writeLines(html, 'reports/dashboard.html')
           "
-      
       - name: Upload dashboard
         uses: actions/upload-artifact@v4
         with:
           name: dashboard
           path: reports/dashboard.html
           retention-days: 30
-      
       - name: Deploy to GitHub Pages
         uses: peaceiris/actions-gh-pages@v3
         with:
@@ -624,15 +385,11 @@ env:
           destination_dir: latest
           keep_files: false
 
-# ============================================================
-# JOB 8: SEND NOTIFICATIONS
-# ============================================================
   notify:
     name: 📧 Send Notifications
     needs: [fetch-data, process-data, combine-validate, clean-geoname, dashboard]
     runs-on: ubuntu-latest
     if: always()
-    
     steps:
       - name: Check status
         id: status
@@ -642,14 +399,9 @@ env:
                 "${{ needs.combine-validate.result }}" == "success" && \
                 "${{ needs.clean-geoname.result }}" == "success" ]]; then
             echo "status=success" >> $GITHUB_OUTPUT
-            echo "emoji=✅" >> $GITHUB_OUTPUT
-            echo "message=SUCCESS" >> $GITHUB_OUTPUT
           else
             echo "status=failed" >> $GITHUB_OUTPUT
-            echo "emoji=❌" >> $GITHUB_OUTPUT
-            echo "message=FAILED" >> $GITHUB_OUTPUT
           fi
-      
       - name: Send email notification
         if: env.EMAIL_USER != '' && env.EMAIL_PASSWORD != ''
         uses: dawidd6/action-send-mail@v3
@@ -658,37 +410,14 @@ env:
           server_port: ${{ secrets.SMTP_PORT }}
           username: ${{ secrets.EMAIL_USER }}
           password: ${{ secrets.EMAIL_PASSWORD }}
-          subject: |
-            ${{ steps.status.outputs.emoji }} LQAS Pipeline ${{ steps.status.outputs.message }} - Run #${{ github.run_number }}
+          subject: "LQAS Pipeline ${{ steps.status.outputs.status }} - Run #${{ github.run_number }}"
           to: ${{ secrets.NOTIFICATION_EMAILS }}
           from: LQAS Automation <${{ secrets.EMAIL_USER }}>
           body: |
-            # LQAS Pipeline Execution Report
-            
-            **Status:** ${{ steps.status.outputs.emoji }} ${{ steps.status.outputs.message }}
-            **Run ID:** #${{ github.run_number }}
-            **Trigger:** ${{ github.event_name }}
-            **Environment:** ${{ github.event.inputs.environment || 'production' }}
-            
-            ## 📊 Processing Summary
-            
-            | Component | Status |
-            |-----------|--------|
-            | Data Fetch | ${{ needs.fetch-data.result }} |
-            | Special Case 272 | ${{ needs.special-272.result }} |
-            | Special Case Nigeria | ${{ needs.special-nigeria.result }} |
-            | R Processing | ${{ needs.process-data.result }} |
-            | Validation | ${{ needs.combine-validate.result }} |
-            | Geoname Cleaning | ${{ needs.clean-geoname.result }} |
-            | Dashboard | ${{ needs.dashboard.result }} |
-            
-            ${{ steps.status.outputs.status == 'success' && '## 📈 Dashboard\n\nView the live dashboard at:\nhttps://' || '' }}${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/latest/dashboard.html
-            
-            ${{ steps.status.outputs.status == 'failed' && '## 🔧 Action Required\n\nPlease check the GitHub Actions logs for details:\n' || '' }}${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-            
-            ---
-            *This is an automated message from the LQAS Pipeline | Next scheduled run: in 2 hours*
-      
+            LQAS Pipeline Execution Report
+            Status: ${{ steps.status.outputs.status }}
+            Run ID: #${{ github.run_number }}
+            Dashboard: https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/latest/dashboard.html
       - name: Create GitHub Issue on Failure
         if: steps.status.outputs.status == 'failed'
         uses: actions/github-script@v7
@@ -698,24 +427,6 @@ env:
               owner: context.repo.owner,
               repo: context.repo.repo,
               title: `❌ LQAS Pipeline Failed - Run #${context.runId}`,
-              body: `## Pipeline Failure Report
-            
-              **Run ID:** ${context.runId}
-              **Trigger:** ${context.eventName}
-              **Time:** ${new Date().toISOString()}
-              
-              ### Failed Jobs:
-              - Fetch: ${{ needs.fetch-data.result }}
-              - Special 272: ${{ needs.special-272.result }}
-              - Special Nigeria: ${{ needs.special-nigeria.result }}
-              - Processing: ${{ needs.process-data.result }}
-              - Validation: ${{ needs.combine-validate.result }}
-              - Geoname: ${{ needs.clean-geoname.result }}
-              - Dashboard: ${{ needs.dashboard.result }}
-              
-              ### Action URL:
-              ${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}
-              
-              Please investigate and fix the issues.`,
-              labels: ['pipeline-failure', 'urgent']
+              body: `Pipeline failed. Check logs: ${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`,
+              labels: ['pipeline-failure']
             })
