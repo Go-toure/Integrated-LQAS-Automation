@@ -47,10 +47,11 @@ env:
 # ============================================================
 # JOB 1: FETCH DATA FROM ONA
 # ============================================================
-jobs:
   fetch-data:
     name: 📡 Fetch Data from ONA
     runs-on: ubuntu-latest
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
     outputs:
       files_fetched: ${{ steps.count_files.outputs.count }}
       fetch_status: ${{ steps.fetch.outcome }}
@@ -65,15 +66,16 @@ jobs:
           python-version: '3.11'
           cache: 'pip'
       
-      - name: Install Python dependencies
-        run: |
-          pip install pandas requests pyyaml rpy2 python-dotenv
-      
-      - name: Install R (for qs package)
+      - name: Install R (required for rpy2)
         run: |
           sudo apt-get update
-          sudo apt-get install -y r-base
-          Rscript -e "install.packages('qs', repos='https://cloud.r-project.org/', quiet=TRUE)"
+          sudo apt-get install -y r-base r-base-dev libcurl4-openssl-dev libssl-dev
+      
+      - name: Install Python dependencies
+        run: |
+          pip install --upgrade pip
+          pip install pandas requests pyyaml rpy2 python-dotenv
+        continue-on-error: false
       
       - name: Create directories
         run: |
@@ -84,6 +86,10 @@ jobs:
           mkdir -p data/lookup
           mkdir -p logs
           mkdir -p reports
+      
+      - name: Install R package (qs)
+        run: |
+          Rscript -e "install.packages('qs', repos='https://cloud.r-project.org/', quiet=TRUE)"
       
       - name: Fetch data from ONA
         id: fetch
@@ -96,6 +102,7 @@ jobs:
           GITHUB_RUN_ID: ${{ github.run_id }}
           GITHUB_SHA: ${{ github.sha }}
           GITHUB_WORKFLOW: ${{ github.workflow }}
+          ONA_API_TOKEN: ${{ secrets.ONA_API_TOKEN }}
       
       - name: Count fetched files
         id: count_files
@@ -116,6 +123,7 @@ jobs:
           name: fetched-data
           path: data/input/
           retention-days: 7
+          if-no-files-found: warn
       
       - name: Upload fetch logs
         if: always()
@@ -124,6 +132,7 @@ jobs:
           name: fetch-logs
           path: logs/
           retention-days: 30
+          if-no-files-found: ignore
 
 # ============================================================
 # JOB 2: SPECIAL CASE - 272.RDS
