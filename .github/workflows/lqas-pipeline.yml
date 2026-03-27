@@ -59,6 +59,18 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y r-base r-base-dev libcurl4-openssl-dev libssl-dev libtirpc-dev
+      - name: Install additional system dependencies for R packages
+        run: |
+          sudo apt-get install -y \
+            libxml2-dev \
+            libharfbuzz-dev \
+            libfribidi-dev \
+            libfreetype6-dev \
+            libpng-dev \
+            libtiff5-dev \
+            libjpeg-dev \
+            libgit2-dev \
+            cmake
       - name: Set R_HOME and create user library
         run: |
           echo "R_HOME=$(R RHOME)" >> $GITHUB_ENV
