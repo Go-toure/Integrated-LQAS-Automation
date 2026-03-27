@@ -80,37 +80,31 @@ jobs:
       - name: Create directories
         run: |
           mkdir -p data/input data/output data/archive data/metadata data/lookup logs reports
-      - name: Install R package (qs) in user library
+      - name: Install R package (qs) with verbose output
         run: |
           Rscript -e "
             lib_path <- Sys.getenv('R_LIBS_USER')
             dir.create(lib_path, recursive = TRUE, showWarnings = FALSE)
             .libPaths(c(lib_path, .libPaths()))
             options(repos = c(CRAN = 'https://cloud.r-project.org/'))
-            if (!requireNamespace('qs', quietly = TRUE)) {
-              install.packages('qs', lib = lib_path, dependencies = TRUE)
-              message('qs package installed successfully')
+            cat('Installing qs to:', lib_path, '\n')
+            cat('Current .libPaths():', .libPaths(), '\n')
+            install.packages('qs', lib = lib_path, dependencies = TRUE, verbose = TRUE)
+            cat('\nInstallation complete. Checking if installed...\n')
+            if ('qs' %in% installed.packages(lib.loc = lib_path)[, 'Package']) {
+              cat('✅ qs successfully installed\n')
             } else {
-              message('qs package already installed')
+              cat('❌ qs not found after installation\n')
+              cat('Packages in library:\n')
+              print(installed.packages(lib.loc = lib_path)[, 'Package'])
+              quit(status = 1)
             }
           "
         env:
           R_LIBS_USER: ~/R/library
       - name: Verify qs installation
         run: |
-          Rscript -e "
-            lib_path <- Sys.getenv('R_LIBS_USER')
-            .libPaths(c(lib_path, .libPaths()))
-            cat('Library paths:', .libPaths(), '\n')
-            if (requireNamespace('qs', quietly = TRUE)) {
-              library(qs)
-              cat('✅ qs package version:', as.character(packageVersion('qs')), '\n')
-              cat('✅ qs package loaded successfully\n')
-            } else {
-              cat('❌ qs package not found in:', .libPaths(), '\n')
-              quit(status = 1)
-            }
-          "
+          echo "✅ qs package installation completed"
         env:
           R_LIBS_USER: ~/R/library
       - name: Fetch data from ONA
