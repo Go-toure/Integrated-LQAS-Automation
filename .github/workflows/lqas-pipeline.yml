@@ -55,13 +55,13 @@ jobs:
         with:
           python-version: '3.11'
           cache: 'pip'
-      - name: Install R and system dependencies
+      - name: Install R and build dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y r-base r-base-dev libcurl4-openssl-dev libssl-dev libtirpc-dev
-      - name: Install additional system dependencies for R packages
-        run: |
           sudo apt-get install -y \
+            r-base r-base-dev \
+            libcurl4-openssl-dev libssl-dev \
+            libtirpc-dev \
             libxml2-dev \
             libharfbuzz-dev \
             libfribidi-dev \
@@ -69,20 +69,27 @@ jobs:
             libpng-dev \
             libtiff5-dev \
             libjpeg-dev \
+            cmake \
             libgit2-dev \
-            cmake
-      - name: Set R_HOME and create user library
+            build-essential
+      - name: Set R_HOME and install qs from source
         run: |
           echo "R_HOME=$(R RHOME)" >> $GITHUB_ENV
-          echo "R_LIBS_USER=~/R/library" >> $GITHUB_ENV
-          mkdir -p ~/R/library
-          echo "R library path set to: ~/R/library"
+          # Install qs from source with dependencies
+          Rscript -e "
+            options(repos = c(CRAN = 'https://cloud.r-project.org/'))
+            # Install build dependencies first
+            install.packages(c('Rcpp', 'BH'), dependencies = TRUE)
+            # Install qs from source
+            install.packages('qs', type = 'source', dependencies = TRUE)
+          "
+      - name: Verify qs installation
+        run: |
+          Rscript -e "library(qs); cat('qs version:', as.character(packageVersion('qs')), '\n')"
       - name: Install Python dependencies
         run: |
           pip install --upgrade pip
-          pip install pandas requests pyyaml python-dotenv
-          export RPY2_CFFI_MODE=ABI
-          pip install rpy2
+          pip install pandas requests pyyaml rpy2 python-dotenv
         env:
           RPY2_CFFI_MODE: ABI
       - name: Verify rpy2 installation
@@ -92,33 +99,6 @@ jobs:
       - name: Create directories
         run: |
           mkdir -p data/input data/output data/archive data/metadata data/lookup logs reports
-      - name: Install R package (qs) with verbose output
-        run: |
-          Rscript -e "
-            lib_path <- Sys.getenv('R_LIBS_USER')
-            dir.create(lib_path, recursive = TRUE, showWarnings = FALSE)
-            .libPaths(c(lib_path, .libPaths()))
-            options(repos = c(CRAN = 'https://cloud.r-project.org/'))
-            cat('Installing qs to:', lib_path, '\n')
-            cat('Current .libPaths():', .libPaths(), '\n')
-            install.packages('qs', lib = lib_path, dependencies = TRUE, verbose = TRUE)
-            cat('\nInstallation complete. Checking if installed...\n')
-            if ('qs' %in% installed.packages(lib.loc = lib_path)[, 'Package']) {
-              cat('✅ qs successfully installed\n')
-            } else {
-              cat('❌ qs not found after installation\n')
-              cat('Packages in library:\n')
-              print(installed.packages(lib.loc = lib_path)[, 'Package'])
-              quit(status = 1)
-            }
-          "
-        env:
-          R_LIBS_USER: ~/R/library
-      - name: Verify qs installation
-        run: |
-          echo "✅ qs package installation completed"
-        env:
-          R_LIBS_USER: ~/R/library
       - name: Fetch data from ONA
         id: fetch
         run: |
@@ -131,7 +111,6 @@ jobs:
           GITHUB_SHA: ${{ github.sha }}
           GITHUB_WORKFLOW: ${{ github.workflow }}
           R_HOME: ${{ env.R_HOME }}
-          R_LIBS_USER: ~/R/library
       - name: Count fetched files
         id: count_files
         run: |
@@ -152,7 +131,7 @@ jobs:
           name: fetch-logs
           path: logs/
           retention-days: 30
-          if-no-files-found: ignore
+          if-no-files-found: ignore 
 
   special-272:
     name: 🟢 Special Case - 272.rds
