@@ -42,8 +42,6 @@ jobs:
   fetch-data:
     name: 📡 Fetch Data from ONA
     runs-on: ubuntu-latest
-    env:
-      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
     outputs:
       files_fetched: ${{ steps.count_files.outputs.count }}
       fetch_status: ${{ steps.fetch.outcome }}
@@ -55,16 +53,24 @@ jobs:
         with:
           python-version: '3.11'
           cache: 'pip'
-      - name: Install R (minimal)
+      - name: Install R and system dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y r-base libcurl4-openssl-dev libssl-dev
-      - name: Install Python dependencies
+          sudo apt-get install -y r-base r-base-dev libcurl4-openssl-dev libssl-dev
+      - name: Install Python dependencies (excluding rpy2)
         run: |
           pip install --upgrade pip
-          pip install pandas requests pyyaml rpy2 python-dotenv
+          pip install pandas requests pyyaml python-dotenv
+      - name: Install rpy2 pre-built wheel
+        run: |
+          # Try to install rpy2 from PyPI with binary wheels
+          pip install --only-binary :all: rpy2 || pip install rpy2 --no-binary :all:
         env:
           RPY2_CFFI_MODE: ABI
+      - name: Verify rpy2
+        run: |
+          python -c "import rpy2; print('rpy2 imported successfully')"
+          python -c "import rpy2.robjects as ro; print('R objects imported successfully')"
       - name: Create directories
         run: |
           mkdir -p data/input data/output data/archive data/metadata data/lookup logs reports
