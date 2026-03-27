@@ -151,16 +151,16 @@ process_single_file <- function(file_path, output_dir) {
   file_name <- basename(file_path)
   log_info("Processing file: {file_name}")
   
-  # Read the RDS file
-  tryCatch({
-    data <- qs::qread(file_path)
+  # Read the RDS file with fallback
+  data <- tryCatch({
+    qs::qread(file_path)
   }, error = function(e) {
-    log_error("Failed to read {file_name}: {e$message}")
-    return(NULL)
+    log_warn("qread failed for {file_name}, trying readRDS: {e$message}")
+    readRDS(file_path)
   })
   
   if (is.null(data) || nrow(data) == 0) {
-    log_warn("Empty data in {file_name}")
+    log_warn("Empty or NULL data in {file_name}")
     return(NULL)
   }
   
