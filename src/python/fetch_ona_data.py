@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 LQAS Data Fetcher from ONA Platform
-GitHub Actions Integrated Version
+GitHub Actions Integrated Version - JSON Output (No rpy2)
 """
 
 import os
@@ -16,6 +16,7 @@ from pathlib import Path
 from datetime import datetime
 from typing import List, Dict, Any
 import argparse
+import time
 
 # Configure logging
 logging.basicConfig(
@@ -30,7 +31,7 @@ logger = logging.getLogger(__name__)
 
 
 class LQASDataFetcher:
-    """Fetches LQAS data from ONA platform"""
+    """Fetches LQAS data from ONA platform and saves as JSON (no R dependency)"""
 
     def __init__(self, config_path: str):
         self.config = self._load_config(config_path)
@@ -123,102 +124,92 @@ class LQASDataFetcher:
             return True, "metadata_error"
 
     def fetch_form(self, form_id: int) -> List[Dict]:
-        """Fetch all data for a specific form"""
+        """Fetch all data for a specific form with retries"""
         all_data = []
         page = 1
         page_size = 10000
+        max_retries = 3
 
         logger.info(f"📡 Fetching form {form_id}...")
 
         while True:
-            try:
-                response = self.session.get(
-                    f"{self.config['ona']['base_url']}/{form_id}.json",
-                    params={"page": page, "page_size": page_size},
-                    timeout=60
-                )
+            for attempt in range(max_retries):
+                try:
+                    response = self.session.get(
+                        f"{self.config['ona']['base_url']}/{form_id}.json",
+                        params={"page": page, "page_size": page_size},
+                        timeout=120
+                    )
 
-                if response.status_code == 200:
-                    data = response.json()
-                    if not data:
+                    if response.status_code == 200:
+                        data = response.json()
+                        if not data:
+                            break
+
+                        logger.info(f"  Page {page}: {len(data)} records")
+                        all_data.extend(data)
+                        page += 1
                         break
 
-                    logger.info(f"  Page {page}: {len(data)} records")
-                    all_data.extend(data)
-                    page += 1
+                    elif response.status_code == 429:
+                        wait_time = (attempt + 1) * 30
+                        logger.warning(f"Rate limited, waiting {wait_time}s...")
+                        time.sleep(wait_time)
+                        continue
 
-                elif response.status_code == 401:
-                    logger.error(f"❌ Authentication failed for form {form_id}")
-                    break
-                elif response.status_code == 404:
-                    logger.warning(f"⚠️ Form {form_id} not found")
-                    break
-                else:
-                    logger.error(f"❌ Error {response.status_code} for form {form_id}")
-                    break
+                    elif response.status_code in [401, 403, 404]:
+                        logger.warning(f"⚠️ Form {form_id} not found (status {response.status_code})")
+                        return all_data
+                    else:
+                        logger.error(f"❌ Error {response.status_code} for form {form_id}")
+                        if attempt == max_retries - 1:
+                            return all_data
+                        time.sleep(10)
 
-            except requests.exceptions.Timeout:
-                logger.error(f"❌ Timeout fetching form {form_id}")
-                break
-            except Exception as e:
-                logger.error(f"❌ Exception fetching form {form_id}: {e}")
+                except requests.exceptions.Timeout:
+                    logger.warning(f"Timeout on attempt {attempt + 1} for form {form_id}")
+                    if attempt == max_retries - 1:
+                        return all_data
+                    time.sleep(10)
+                except Exception as e:
+                    logger.error(f"❌ Exception fetching form {form_id}: {e}")
+                    if attempt == max_retries - 1:
+                        return all_data
+                    time.sleep(10)
+
+            # Check if we've broken out of the loop
+            if page > 1 and not data:
                 break
 
         logger.info(f"✅ Form {form_id}: {len(all_data)} total records")
         return all_data
 
-    def save_to_rds(self, data: List[Dict], form_id: int) -> bool:
-        """
-        Save data to RDS file.
-        Tries qs first, falls back to saveRDS if qs not available.
-        """
+    def save_to_json(self, data: List[Dict], form_id: int) -> bool:
+        """Save data to JSON file (no R dependency)"""
         if not data:
             logger.warning(f"⚠️ No data to save for form {form_id}")
             return False
 
         try:
-            # Convert to DataFrame
-            df = pd.DataFrame(data).fillna("").astype(str)
-
-            # Extract GPS components if present
-            if "GPS_hh" in df.columns:
-                gps_parts = df["GPS_hh"].str.split(" ", expand=True)
-                if len(gps_parts.columns) >= 3:
-                    df["_GPS_hh_latitude"] = gps_parts[0]
-                    df["_GPS_hh_longitude"] = gps_parts[1]
-                    df["_GPS_hh_altitude"] = gps_parts[2]
-
             # Save path
-            output_path = self.input_dir / f"{form_id}.rds"
+            output_path = self.input_dir / f"{form_id}.json"
 
-            # Save using R
-            import rpy2.robjects as robjects
-            from rpy2.robjects import pandas2ri
-            from rpy2.robjects.conversion import localconverter
+            # Convert any non-serializable objects to strings
+            def json_serializable(obj):
+                if isinstance(obj, (datetime, pd.Timestamp)):
+                    return obj.isoformat()
+                if hasattr(obj, '__dict__'):
+                    return str(obj)
+                return obj
 
-            with localconverter(robjects.default_converter + pandas2ri.converter):
-                r_df = robjects.conversion.py2rpy(df)
-
-                # Try to use qs first, fallback to saveRDS
-                try:
-                    # Check if qs is available
-                    qs_available = robjects.r('requireNamespace("qs", quietly = TRUE)')[0]
-                    if qs_available:
-                        robjects.r(f"qs::qsave({r_df.r_repr()}, '{output_path.as_posix()}')")
-                        logger.info(f"✅ Saved with qs: {output_path}")
-                    else:
-                        raise Exception("qs not available")
-                except Exception as e:
-                    # qs not available, use saveRDS
-                    logger.warning(f"qs not available, using saveRDS fallback: {e}")
-                    robjects.r(f"saveRDS({r_df.r_repr()}, '{output_path.as_posix()}')")
-                    logger.info(f"✅ Saved with saveRDS: {output_path}")
+            # Save as JSON with proper serialization
+            with open(output_path, 'w', encoding='utf-8') as f:
+                json.dump(data, f, ensure_ascii=False, indent=2, default=json_serializable)
 
             # Save metadata
             metadata = {
                 'form_id': form_id,
-                'records': len(df),
-                'columns': len(df.columns),
+                'records': len(data),
                 'file_size': output_path.stat().st_size,
                 'file_hash': self._calculate_hash(output_path),
                 'last_fetch': datetime.now().isoformat(),
@@ -230,10 +221,13 @@ class LQASDataFetcher:
             with open(metadata_path, 'w') as f:
                 json.dump(metadata, f, indent=2)
 
+            logger.info(f"✅ Saved {len(data)} records to {output_path}")
             return True
 
         except Exception as e:
             logger.error(f"❌ Failed to save form {form_id}: {e}")
+            import traceback
+            traceback.print_exc()
             return False
 
     def run(self, force_full: bool = False, specific_forms: List[int] = None) -> Dict:
@@ -256,7 +250,7 @@ class LQASDataFetcher:
             # Fetch data
             data = self.fetch_form(form_id)
             if data:
-                success = self.save_to_rds(data, form_id)
+                success = self.save_to_json(data, form_id)
                 results[form_id] = {
                     'status': 'success' if success else 'failed',
                     'records': len(data)
