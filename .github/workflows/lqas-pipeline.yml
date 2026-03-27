@@ -39,6 +39,9 @@ env:
   GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
 jobs:
+  # ============================================================
+  # JOB 1: FETCH DATA FROM ONA (SAVE AS JSON)
+  # ============================================================
   fetch-data:
     name: 📡 Fetch Data from ONA
     runs-on: ubuntu-latest
@@ -53,24 +56,10 @@ jobs:
         with:
           python-version: '3.11'
           cache: 'pip'
-      - name: Install R and system dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y r-base r-base-dev libcurl4-openssl-dev libssl-dev
-      - name: Install Python dependencies (excluding rpy2)
+      - name: Install Python dependencies
         run: |
           pip install --upgrade pip
           pip install pandas requests pyyaml python-dotenv
-      - name: Install rpy2 pre-built wheel
-        run: |
-          # Try to install rpy2 from PyPI with binary wheels
-          pip install --only-binary :all: rpy2 || pip install rpy2 --no-binary :all:
-        env:
-          RPY2_CFFI_MODE: ABI
-      - name: Verify rpy2
-        run: |
-          python -c "import rpy2; print('rpy2 imported successfully')"
-          python -c "import rpy2.robjects as ro; print('R objects imported successfully')"
       - name: Create directories
         run: |
           mkdir -p data/input data/output data/archive data/metadata data/lookup logs reports
@@ -88,9 +77,9 @@ jobs:
       - name: Count fetched files
         id: count_files
         run: |
-          count=$(ls -1 data/input/*.rds 2>/dev/null | wc -l)
+          count=$(ls -1 data/input/*.json 2>/dev/null | wc -l)
           echo "count=$count" >> $GITHUB_OUTPUT
-          echo "📊 Total files fetched: $count"
+          echo "📊 Total JSON files fetched: $count"
       - name: Upload fetched data artifact
         uses: actions/upload-artifact@v4
         with:
@@ -107,11 +96,13 @@ jobs:
           retention-days: 30
           if-no-files-found: ignore
 
-  special-272:
-    name: 🟢 Special Case - 272.rds
-    runs-on: ubuntu-latest
+  # ============================================================
+  # JOB 2: CONVERT JSON TO RDS
+  # ============================================================
+  convert-json-to-rds:
+    name: 🔄 Convert JSON to RDS
     needs: fetch-data
-    if: always()
+    runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -119,6 +110,52 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: fetched-data
+          path: data/input/
+      - name: Setup R
+        uses: r-lib/actions/setup-r@v2
+        with:
+          r-version: '4.3.0'
+          use-public-rspm: true
+      - name: Install R packages
+        run: |
+          install.packages(c('jsonlite', 'logger', 'fs', 'argparse', 'tidyverse'), 
+                           repos='https://cloud.r-project.org/')
+        shell: Rscript {0}
+      - name: Convert JSON to RDS
+        run: |
+          Rscript src/r/convert_json_to_rds.R \
+            --input-dir data/input \
+            --output-dir data/input
+      - name: Upload converted RDS data
+        uses: actions/upload-artifact@v4
+        with:
+          name: converted-rds
+          path: data/input/*.rds
+          retention-days: 7
+      - name: Upload conversion logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: conversion-logs
+          path: logs/
+          retention-days: 30
+          if-no-files-found: ignore
+
+  # ============================================================
+  # JOB 3: SPECIAL CASE - 272.RDS
+  # ============================================================
+  special-272:
+    name: 🟢 Special Case - 272.rds
+    runs-on: ubuntu-latest
+    needs: convert-json-to-rds
+    if: always()
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - name: Download converted RDS data
+        uses: actions/download-artifact@v4
+        with:
+          name: converted-rds
           path: data/input/
       - name: Check if 272.rds exists
         id: check_272
@@ -138,7 +175,8 @@ jobs:
       - name: Install R packages
         if: steps.check_272.outputs.exists == 'true'
         run: |
-          install.packages(c('tidyverse', 'lubridate', 'qs', 'logger', 'fs', 'argparse', 'readxl'), repos='https://cloud.r-project.org/')
+          install.packages(c('tidyverse', 'lubridate', 'logger', 'fs', 'argparse', 'readxl'), 
+                           repos='https://cloud.r-project.org/')
         shell: Rscript {0}
       - name: Process 272.rds
         if: steps.check_272.outputs.exists == 'true'
@@ -155,18 +193,21 @@ jobs:
           path: data/output/272.csv
           retention-days: 7
 
+  # ============================================================
+  # JOB 4: SPECIAL CASE - NIGERIA CSV
+  # ============================================================
   special-nigeria:
     name: 🟢 Special Case - Nigeria CSV
     runs-on: ubuntu-latest
-    needs: fetch-data
+    needs: convert-json-to-rds
     if: always()
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-      - name: Download fetched data
+      - name: Download converted RDS data
         uses: actions/download-artifact@v4
         with:
-          name: fetched-data
+          name: converted-rds
           path: data/input/
       - name: Check if Nigeria CSV exists
         id: check_nigeria
@@ -186,7 +227,8 @@ jobs:
       - name: Install R packages
         if: steps.check_nigeria.outputs.exists == 'true'
         run: |
-          install.packages(c('tidyverse', 'lubridate', 'logger', 'fs', 'argparse', 'readxl'), repos='https://cloud.r-project.org/')
+          install.packages(c('tidyverse', 'lubridate', 'logger', 'fs', 'argparse', 'readxl'), 
+                           repos='https://cloud.r-project.org/')
         shell: Rscript {0}
       - name: Process Nigeria CSV
         if: steps.check_nigeria.outputs.exists == 'true'
@@ -203,9 +245,12 @@ jobs:
           path: data/output/nigeria_processed.csv
           retention-days: 7
 
+  # ============================================================
+  # JOB 5: PROCESS DATA WITH R (PARALLEL CHUNKS)
+  # ============================================================
   process-data:
     name: 🔄 Process Data with R
-    needs: [fetch-data, special-272, special-nigeria]
+    needs: [convert-json-to-rds, special-272, special-nigeria]
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -214,10 +259,10 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
-      - name: Download fetched data
+      - name: Download converted RDS data
         uses: actions/download-artifact@v4
         with:
-          name: fetched-data
+          name: converted-rds
           path: data/input/
       - name: Download special case data
         uses: actions/download-artifact@v4
@@ -233,7 +278,10 @@ jobs:
           use-public-rspm: true
       - name: Install R packages
         run: |
-          install.packages(c('tidyverse', 'qs', 'logger', 'fs', 'argparse', 'janitor', 'readxl', 'writexl', 'stringr', 'lubridate', 'dplyr', 'tidyr'), repos='https://cloud.r-project.org/', quiet = TRUE)
+          install.packages(c(
+            'tidyverse', 'lubridate', 'logger', 'fs', 'argparse', 'janitor',
+            'readxl', 'writexl', 'stringr', 'dplyr', 'tidyr'
+          ), repos = 'https://cloud.r-project.org/', quiet = TRUE)
         shell: Rscript {0}
       - name: Create output directory
         run: mkdir -p data/output
@@ -260,6 +308,9 @@ jobs:
           retention-days: 30
           if-no-files-found: ignore
 
+  # ============================================================
+  # JOB 6: COMBINE AND VALIDATE
+  # ============================================================
   combine-validate:
     name: 🔗 Combine and Validate Data
     needs: process-data
@@ -289,7 +340,8 @@ jobs:
           use-public-rspm: true
       - name: Install R packages
         run: |
-          install.packages(c('tidyverse', 'lubridate', 'logger', 'fs'), repos='https://cloud.r-project.org/')
+          install.packages(c('tidyverse', 'lubridate', 'logger', 'fs'), 
+                           repos='https://cloud.r-project.org/')
         shell: Rscript {0}
       - name: Combine and validate data
         id: combine
@@ -310,6 +362,9 @@ jobs:
           path: data/combined_lqas_data.csv
           retention-days: 30
 
+  # ============================================================
+  # JOB 7: GEONAME CLEANING
+  # ============================================================
   clean-geoname:
     name: 🧹 Clean Geoname Data
     needs: combine-validate
@@ -329,7 +384,9 @@ jobs:
           use-public-rspm: true
       - name: Install R packages
         run: |
-          install.packages(c('tidyverse', 'lubridate', 'logger', 'fs', 'argparse', 'readxl', 'stringr', 'stringi', 'janitor'), repos='https://cloud.r-project.org/')
+          install.packages(c('tidyverse', 'lubridate', 'logger', 'fs', 'argparse', 
+                           'readxl', 'stringr', 'stringi', 'janitor'), 
+                           repos='https://cloud.r-project.org/')
         shell: Rscript {0}
       - name: Run geoname cleaning
         run: |
@@ -345,6 +402,9 @@ jobs:
           path: data/lqas_final.csv
           retention-days: 30
 
+  # ============================================================
+  # JOB 8: GENERATE DASHBOARD
+  # ============================================================
   dashboard:
     name: 📊 Generate Dashboard
     needs: clean-geoname
@@ -435,12 +495,7 @@ jobs:
                   </div>
                   <div class=\"card\">
                     <h2>🌍 Coverage by Country</h2>
-                    <table>
-                      <thead><tr><th>Country</th><th>Sampled</th><th>Vaccinated</th><th>Coverage</th></tr></thead>
-                      <tbody>
-                        %s
-                      </tbody>
-                    </table>
+                     <table> <thead> <tr><th>Country</th><th>Sampled</th><th>Vaccinated</th><th>Coverage</th></tr> </thead> <tbody> %s </tbody> </table>
                   </div>
                   <div class=\"footer\"><p>🤖 Fully Automated LQAS Pipeline | Next run: in 2 hours</p></div>
                 </div>
@@ -487,9 +542,12 @@ jobs:
           destination_dir: latest
           keep_files: false
 
+  # ============================================================
+  # JOB 9: SEND NOTIFICATIONS
+  # ============================================================
   notify:
     name: 📧 Send Notifications
-    needs: [fetch-data, process-data, combine-validate, clean-geoname, dashboard]
+    needs: [fetch-data, convert-json-to-rds, process-data, combine-validate, clean-geoname, dashboard]
     runs-on: ubuntu-latest
     if: always()
     steps:
@@ -497,6 +555,7 @@ jobs:
         id: status
         run: |
           if [[ "${{ needs.fetch-data.result }}" == "success" && \
+                "${{ needs.convert-json-to-rds.result }}" == "success" && \
                 "${{ needs.process-data.result }}" == "success" && \
                 "${{ needs.combine-validate.result }}" == "success" && \
                 "${{ needs.clean-geoname.result }}" == "success" ]]; then
@@ -526,6 +585,7 @@ jobs:
             
             📊 Processing Summary:
             - Data Fetch: ${{ needs.fetch-data.result }}
+            - JSON to RDS: ${{ needs.convert-json-to-rds.result }}
             - Special Case 272: ${{ needs.special-272.result }}
             - Special Case Nigeria: ${{ needs.special-nigeria.result }}
             - R Processing: ${{ needs.process-data.result }}
@@ -556,6 +616,7 @@ jobs:
               
               ### Failed Jobs:
               - Fetch: ${{ needs.fetch-data.result }}
+              - JSON to RDS: ${{ needs.convert-json-to-rds.result }}
               - Special 272: ${{ needs.special-272.result }}
               - Special Nigeria: ${{ needs.special-nigeria.result }}
               - Processing: ${{ needs.process-data.result }}
