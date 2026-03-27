@@ -55,47 +55,16 @@ jobs:
         with:
           python-version: '3.11'
           cache: 'pip'
-      - name: Install R and build dependencies
+      - name: Install R (minimal)
         run: |
           sudo apt-get update
-          sudo apt-get install -y \
-            r-base r-base-dev \
-            libcurl4-openssl-dev libssl-dev \
-            libtirpc-dev \
-            libxml2-dev \
-            libharfbuzz-dev \
-            libfribidi-dev \
-            libfreetype6-dev \
-            libpng-dev \
-            libtiff5-dev \
-            libjpeg-dev \
-            cmake \
-            libgit2-dev \
-            build-essential
-      - name: Set R_HOME and install qs from source
-        run: |
-          echo "R_HOME=$(R RHOME)" >> $GITHUB_ENV
-          # Install qs from source with dependencies
-          Rscript -e "
-            options(repos = c(CRAN = 'https://cloud.r-project.org/'))
-            # Install build dependencies first
-            install.packages(c('Rcpp', 'BH'), dependencies = TRUE)
-            # Install qs from source
-            install.packages('qs', type = 'source', dependencies = TRUE)
-          "
-      - name: Verify qs installation
-        run: |
-          Rscript -e "library(qs); cat('qs version:', as.character(packageVersion('qs')), '\n')"
+          sudo apt-get install -y r-base libcurl4-openssl-dev libssl-dev
       - name: Install Python dependencies
         run: |
           pip install --upgrade pip
           pip install pandas requests pyyaml rpy2 python-dotenv
         env:
           RPY2_CFFI_MODE: ABI
-      - name: Verify rpy2 installation
-        run: |
-          python -c "import rpy2; print('rpy2 imported successfully')"
-          python -c "import rpy2.robjects as ro; print('R objects imported successfully')"
       - name: Create directories
         run: |
           mkdir -p data/input data/output data/archive data/metadata data/lookup logs reports
@@ -110,7 +79,6 @@ jobs:
           GITHUB_RUN_ID: ${{ github.run_id }}
           GITHUB_SHA: ${{ github.sha }}
           GITHUB_WORKFLOW: ${{ github.workflow }}
-          R_HOME: ${{ env.R_HOME }}
       - name: Count fetched files
         id: count_files
         run: |
@@ -131,7 +99,7 @@ jobs:
           name: fetch-logs
           path: logs/
           retention-days: 30
-          if-no-files-found: ignore 
+          if-no-files-found: ignore
 
   special-272:
     name: 🟢 Special Case - 272.rds
